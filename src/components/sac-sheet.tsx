@@ -6,7 +6,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
 import { SubjectCombobox } from "@/components/subject-combobox"
+import { PerformanceContextFields } from "@/components/performance-context-fields"
 import { prioritiseSubjects } from "@/lib/subjects"
+import { hasPerformanceContext, type PerformanceContext } from "@/lib/performance-context"
 import { validateSac, type SacRecord, type SacUnit } from "@/lib/sac"
 
 type SacSheetProps = {
@@ -34,6 +36,7 @@ export function SacSheet({ open, subjects, preferredSubjects, initialRecord, onO
   const [maxScore, setMaxScore] = useState(initialRecord?.maxScore?.toString() ?? "")
   const [weighting, setWeighting] = useState(initialRecord?.weighting?.toString() ?? "")
   const [notes, setNotes] = useState(initialRecord?.notes ?? "")
+  const [performanceContext, setPerformanceContext] = useState<PerformanceContext>(initialRecord?.performanceContext ?? {})
   const [error, setError] = useState<string | null>(null)
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -65,6 +68,7 @@ export function SacSheet({ open, subjects, preferredSubjects, initialRecord, onO
       areaOfStudy: areaOfStudy.trim() || undefined,
       completedAt: parsedScore !== undefined ? (initialRecord?.completedAt ?? scheduledAt) : undefined,
       notes: notes.trim() || undefined,
+      performanceContext: hasPerformanceContext(performanceContext) ? performanceContext : undefined,
       timing: initialRecord?.timing,
       createdAt: initialRecord?.createdAt ?? timestamp,
       updatedAt: timestamp,
@@ -142,6 +146,7 @@ export function SacSheet({ open, subjects, preferredSubjects, initialRecord, onO
               </div>
               <FieldDescription className="mt-2">Leave mark and maximum blank to track this as an upcoming SAC.</FieldDescription>
             </div>
+            {score.trim() !== "" || maxScore.trim() !== "" ? <PerformanceContextFields value={performanceContext} onChange={setPerformanceContext} idPrefix="sac-context" /> : null}
             <Field>
               <FieldLabel htmlFor="sac-notes">Notes <span className="text-muted-foreground">(optional)</span></FieldLabel>
               <Textarea id="sac-notes" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Topics to revise or feedback from your teacher" />

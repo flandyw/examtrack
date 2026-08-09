@@ -18,6 +18,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Progress, ProgressLabel } from "@/components/ui/progress"
 import { PageHeader } from "@/components/page-header"
 import { QuestionResultsEditor } from "@/components/question-results-editor"
+import { PerformanceContextFields } from "@/components/performance-context-fields"
 import { useTickingNow } from "@/hooks/use-ticking-now"
 import { formatExamTitle, formatReferenceName, validateAttempt, validateQuestionResults, type AssessmentReference, type ExamAttempt, type QuestionResult } from "@/lib/exam-data"
 import { buildCompanyExamSuggestions, buildExamSuggestions, findLatestAttempt, type ExamSuggestion } from "@/lib/exam-suggestions"
@@ -32,6 +33,7 @@ import {
 } from "@/lib/focal-timer"
 import { loadAppData } from "@/lib/storage"
 import { firstPreferredSubject, prioritiseSubjects } from "@/lib/subjects"
+import { hasPerformanceContext, type PerformanceContext } from "@/lib/performance-context"
 import type { VcaaStudyResources } from "@/lib/vcaa-resources"
 
 type TimerSession = {
@@ -114,6 +116,7 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
   const [rawScore, setRawScore] = useState(0)
   const [rawMax, setRawMax] = useState(40)
   const [comment, setComment] = useState("")
+  const [performanceContext, setPerformanceContext] = useState<PerformanceContext>({})
   const [completedAt, setCompletedAt] = useState(today)
   const [markingError, setMarkingError] = useState<string | null>(null)
   const [questionResults, setQuestionResults] = useState<QuestionResult[]>([])
@@ -236,6 +239,7 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
       rawScore,
       rawMax,
       comment: comment.trim() || undefined,
+      performanceContext: hasPerformanceContext(performanceContext) ? performanceContext : undefined,
       questionResults: questionResults.length ? questionResults : undefined,
       timing: {
         plannedReadingMinutes: session.readingMinutes,
@@ -406,6 +410,7 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
                 <FieldLabel htmlFor="timer-completed">Completed</FieldLabel>
                 <Input id="timer-completed" type="date" value={completedAt} onChange={(event) => setCompletedAt(event.target.value)} required />
               </Field>
+              <PerformanceContextFields value={performanceContext} onChange={setPerformanceContext} idPrefix="exam-timer-context" />
               <QuestionResultsEditor value={questionResults} onChange={setQuestionResults} />
               <Field>
                 <FieldLabel htmlFor="timer-comment">Overall comment <span className="text-muted-foreground">(optional)</span></FieldLabel>

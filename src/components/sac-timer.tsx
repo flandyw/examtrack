@@ -10,6 +10,7 @@ import { Progress, ProgressLabel } from "@/components/ui/progress"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { SubjectCombobox } from "@/components/subject-combobox"
+import { PerformanceContextFields } from "@/components/performance-context-fields"
 import { useTickingNow } from "@/hooks/use-ticking-now"
 import { formatTimer } from "@/lib/exam-timer"
 import { getSacTimerState, validateSac, type SacRecord, type SacUnit } from "@/lib/sac"
@@ -22,6 +23,7 @@ import {
   type FocalTimerLink,
 } from "@/lib/focal-timer"
 import { prioritiseSubjects } from "@/lib/subjects"
+import { hasPerformanceContext, type PerformanceContext } from "@/lib/performance-context"
 
 type SacTimerSession = {
   recordId?: string
@@ -87,6 +89,7 @@ export function SacTimer({ records, subjects, preferredSubjects, initialRecord, 
   const [markingOpen, setMarkingOpen] = useState(false)
   const [score, setScore] = useState(0)
   const [notes, setNotes] = useState(initialRecord?.notes ?? "")
+  const [performanceContext, setPerformanceContext] = useState<PerformanceContext>(initialRecord?.performanceContext ?? {})
   const [error, setError] = useState<string | null>(null)
   const now = useTickingNow(250)
   const timer = useMemo(() => session
@@ -199,6 +202,7 @@ export function SacTimer({ records, subjects, preferredSubjects, initialRecord, 
       weighting: session.weighting,
       completedAt: today(),
       notes: notes.trim() || session.notes,
+      performanceContext: hasPerformanceContext(performanceContext) ? performanceContext : undefined,
       timing: {
         plannedSeconds: session.durationMinutes * 60,
         actualSeconds: timer.elapsedSeconds,
@@ -263,7 +267,7 @@ export function SacTimer({ records, subjects, preferredSubjects, initialRecord, 
       <div className="grid gap-4 sm:grid-cols-2"><Card><CardHeader><CardDescription>Pace</CardDescription><CardTitle className="text-3xl tabular-nums">{(session.durationMinutes / session.maxScore).toFixed(2)} min / mark</CardTitle></CardHeader></Card><Card><CardHeader><CardDescription>Expected progress</CardDescription><CardTitle className="text-3xl tabular-nums">{Math.min(session.maxScore, (timer.elapsedSeconds / (session.durationMinutes * 60)) * session.maxScore).toFixed(1)} / {session.maxScore} marks</CardTitle></CardHeader></Card></div>
       {overtime ? <Alert variant="destructive"><Clock3 /><AlertTitle>Time has ended</AlertTitle><AlertDescription>The timer is recording overtime. Finish and mark when you put your pen down.</AlertDescription></Alert> : null}
       <Dialog open={markingOpen} onOpenChange={(open) => open ? setMarkingOpen(true) : closeMarking()}>
-        <DialogContent><DialogHeader><DialogTitle>Mark and log SAC</DialogTitle><DialogDescription>Save the result and timing evidence to your SAC statistics.</DialogDescription></DialogHeader><form id="sac-timer-result" onSubmit={saveResult}><FieldGroup><div className="grid grid-cols-2 gap-4"><Field data-invalid={error ? true : undefined}><FieldLabel htmlFor="sac-timer-score">Mark</FieldLabel><Input id="sac-timer-score" type="number" min="0" max={session.maxScore} step="0.5" value={score} onChange={(event) => setScore(event.target.valueAsNumber)} autoFocus required /></Field><Field><FieldLabel>Out of</FieldLabel><Input value={session.maxScore} disabled /></Field></div><Field><FieldLabel htmlFor="sac-timer-notes">Notes <span className="text-muted-foreground">(optional)</span></FieldLabel><Textarea id="sac-timer-notes" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="What went well or what needs revision?" /></Field><FieldError>{error}</FieldError></FieldGroup></form><DialogFooter><Button variant="outline" onClick={closeMarking}>Keep timing</Button><Button type="submit" form="sac-timer-result">Log SAC result</Button></DialogFooter></DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl"><DialogHeader><DialogTitle>Mark and log SAC</DialogTitle><DialogDescription>Save the result, conditions, and timing evidence to your SAC statistics.</DialogDescription></DialogHeader><form id="sac-timer-result" onSubmit={saveResult}><FieldGroup><div className="grid grid-cols-2 gap-4"><Field data-invalid={error ? true : undefined}><FieldLabel htmlFor="sac-timer-score">Mark</FieldLabel><Input id="sac-timer-score" type="number" min="0" max={session.maxScore} step="0.5" value={score} onChange={(event) => setScore(event.target.valueAsNumber)} autoFocus required /></Field><Field><FieldLabel>Out of</FieldLabel><Input value={session.maxScore} disabled /></Field></div><PerformanceContextFields value={performanceContext} onChange={setPerformanceContext} idPrefix="sac-timer-context" /><Field><FieldLabel htmlFor="sac-timer-notes">Notes <span className="text-muted-foreground">(optional)</span></FieldLabel><Textarea id="sac-timer-notes" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="What went well or what needs revision?" /></Field><FieldError>{error}</FieldError></FieldGroup></form><DialogFooter><Button variant="outline" onClick={closeMarking}>Keep timing</Button><Button type="submit" form="sac-timer-result">Log SAC result</Button></DialogFooter></DialogContent>
       </Dialog>
     </div>
   )

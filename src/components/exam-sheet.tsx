@@ -5,6 +5,7 @@ import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/c
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { QuestionResultsEditor } from "@/components/question-results-editor"
+import { PerformanceContextFields } from "@/components/performance-context-fields"
 import {
   Sheet,
   SheetContent,
@@ -14,13 +15,20 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { analyseAttempt, findAttemptReferenceForYear, formatExamTitle, formatReferenceName, validateAttempt, validateQuestionResults, type AssessmentReference, type ExamAttempt, type QuestionResult } from "@/lib/exam-data"
+import { buildCompanyExamSuggestions, buildExamSuggestions, findLatestAttempt, type ExamSuggestion } from "@/lib/exam-suggestions"
+import type { ExamDifficultySettings } from "@/lib/exam-difficulty"
 import { firstPreferredSubject, prioritiseSubjects } from "@/lib/subjects"
+import { hasPerformanceContext, type PerformanceContext } from "@/lib/performance-context"
+import type { VcaaStudyResources } from "@/lib/vcaa-resources"
 
 type ExamSheetProps = {
   open: boolean
   references: AssessmentReference[]
+  attempts: ExamAttempt[]
+  studies: VcaaStudyResources[]
   preferredSubjects: string[]
   comparisonYear: number
+  difficultySettings?: ExamDifficultySettings
   initialAttempt?: ExamAttempt | null
   onOpenChange: (open: boolean) => void
   onSave: (attempt: ExamAttempt, logMistake: boolean) => void
@@ -28,7 +36,31 @@ type ExamSheetProps = {
 
 const today = new Date().toISOString().slice(0, 10)
 
-export function ExamSheet({ open, references, preferredSubjects, comparisonYear, initialAttempt, onOpenChange, onSave }: ExamSheetProps) {
+function SuggestionButton({ suggestion, selected, onClick, showProvider = false }: {
+  suggestion: ExamSuggestion
+  selected: boolean
+  onClick: (suggestion: ExamSuggestion) => void
+  showProvider?: boolean
+}) {
+  return (
+    <Button
+      type="button"
+      variant={selected ? "secondary" : "outline"}
+      className="h-auto justify-start whitespace-normal px-3 py-2.5 text-left"
+      aria-pressed={selected}
+      onClick={() => onClick(suggestion)}
+    >
+      <span className="grid gap-0.5">
+        <span className="font-medium">{showProvider ? `${suggestion.provider} · ${suggestion.paper}` : `${suggestion.examYear} · ${suggestion.paper}`}</span>
+        <span className="text-xs font-normal text-muted-foreground">
+          {showProvider ? `${suggestion.examYear} · ${suggestion.subject}` : suggestion.subject} · {suggestion.marks} marks
+        </span>
+      </span>
+    </Button>
+  )
+}
+
+export function ExamSheet({ open, references, attempts, studies, preferredSubjects, comparisonYear, difficultySettings, initialAttempt, onOpenChange, onSave }: ExamSheetProps) {
   const subjects = useMemo(
     () => prioritiseSubjects(references.map((item) => item.studyName), preferredSubjects),
     [references, preferredSubjects],
@@ -42,8 +74,18 @@ export function ExamSheet({ open, references, preferredSubjects, comparisonYear,
   const [rawScore, setRawScore] = useState(initialAttempt?.rawScore ?? 0)
   const [rawMax, setRawMax] = useState(initialAttempt?.rawMax ?? 40)
   const [comment, setComment] = useState(initialAttempt?.comment ?? "")
+  const [performanceContext, setPerformanceContext] = useState<PerformanceContext>(initialAttempt?.performanceContext ?? {})
   const [questionResults, setQuestionResults] = useState<QuestionResult[]>(initialAttempt?.questionResults ?? [])
   const [error, setError] = useState<string | null>(null)
+  const suggestions = useMemo(
+    () => initialAttempt ? [] : buildExamSuggestions(attempts, references, preferredSubjects, 4, studies),
+    [attempts, initialAttempt, preferredSubjects, references, studies],
+  )
+  const companySuggestions = useMemo(
+    () => initialAttempt ? [] : buildCompanyExamSuggestions(attempts, references, preferredSubjects, difficultySettings, 4),
+    [attempts, difficultySettings, initialAttempt, preferredSubjects, references],
+  )
+  const latestAttempt = useMemo(() => findLatestAttempt(attempts), [attempts])
 
   const paperOptions = useMemo(
     () => [...new Set(references
@@ -53,6 +95,19 @@ export function ExamSheet({ open, references, preferredSubjects, comparisonYear,
   )
   const reference = findAttemptReferenceForYear({ subject, paper }, references, comparisonYear)
   const scaled = reference && rawMax > 0 ? analyseAttempt({ rawScore, rawMax }, reference) : null
+  function applySuggestion(suggestion: ExamSuggestion) {
+    setSubject(suggestion.subject)
+    setProvider(suggestion.provider)
+    setExamYear(suggestion.examYear)
+    setPaper(suggestion.paper)
+    setRawMax(suggestion.marks)
+    setError(null)
+  }
+
+  function isSelected(suggestion: ExamSuggestion) {
+    return subject === suggestion.subject && provider === suggestion.provider && examYear === suggestion.examYear && paper === suggestion.paper
+  }
+
   function reset() {
     setSubject(defaultSubject)
     setProvider("VCAA")
@@ -62,6 +117,7 @@ export function ExamSheet({ open, references, preferredSubjects, comparisonYear,
     setRawScore(0)
     setRawMax(40)
     setComment("")
+    setPerformanceContext({})
     setQuestionResults([])
     setError(null)
   }
@@ -93,6 +149,7 @@ export function ExamSheet({ open, references, preferredSubjects, comparisonYear,
       rawScore,
       rawMax,
       comment: comment.trim() || undefined,
+      performanceContext: hasPerformanceContext(performanceContext) ? performanceContext : undefined,
       questionResults: questionResults.length ? questionResults : undefined,
       timing: initialAttempt?.timing,
       referenceId: null,
@@ -114,6 +171,21 @@ export function ExamSheet({ open, references, preferredSubjects, comparisonYear,
         </SheetHeader>
         <form id="exam-form" className="px-4 pb-4" onSubmit={submit}>
           <FieldGroup>
+            {suggestions.length || companySuggestions.length ? (
+              <section className="grid gap-4 rounded-lg border bg-muted/20 p-4" aria-labelledby="log-exam-suggestions-title">
+                <div>
+                  <h3 id="log-exam-suggestions-title" className="text-sm font-medium">Suggested next exams</h3>
+                  <p className="text-xs text-muted-foreground">
+                    {latestAttempt
+                      ? `Based on your latest logged paper: ${latestAttempt.examYear} ${latestAttempt.subject} · ${latestAttempt.paper}.`
+                      : "Based on your preferred subjects and available VCAA papers."}
+                    {" "}Choose one to fill the details below.
+                  </p>
+                </div>
+                {suggestions.length ? <div className="grid gap-2"><p className="text-xs font-medium text-muted-foreground">Official VCAA papers</p><div className="grid gap-2 sm:grid-cols-2">{suggestions.map((suggestion) => <SuggestionButton key={`${suggestion.subject}-${suggestion.provider}-${suggestion.examYear}-${suggestion.paper}`} suggestion={suggestion} selected={isSelected(suggestion)} onClick={applySuggestion} />)}</div></div> : null}
+                {companySuggestions.length ? <div className="grid gap-2"><p className="text-xs font-medium text-muted-foreground">Company exam progression</p><div className="grid gap-2 sm:grid-cols-2">{companySuggestions.map((suggestion) => <SuggestionButton key={`${suggestion.subject}-${suggestion.provider}-${suggestion.examYear}-${suggestion.paper}`} suggestion={suggestion} selected={isSelected(suggestion)} onClick={applySuggestion} showProvider />)}</div></div> : null}
+              </section>
+            ) : null}
             <div className="grid gap-5 sm:grid-cols-2">
               <Field>
                 <FieldLabel htmlFor="subject">Subject</FieldLabel>
@@ -161,6 +233,7 @@ export function ExamSheet({ open, references, preferredSubjects, comparisonYear,
               <FieldLabel htmlFor="exam-comment">Overall comment <span className="text-muted-foreground">(optional)</span></FieldLabel>
               <Textarea id="exam-comment" value={comment} onChange={(event) => setComment(event.target.value)} placeholder="What went well or what to improve next time?" />
             </Field>
+            <PerformanceContextFields value={performanceContext} onChange={setPerformanceContext} idPrefix="exam-context" />
             <QuestionResultsEditor value={questionResults} onChange={setQuestionResults} />
             <FieldError>{error}</FieldError>
           </FieldGroup>

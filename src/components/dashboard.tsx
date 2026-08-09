@@ -32,6 +32,7 @@ import { buildFocusPriorities, buildSubjectOutlooks } from "@/lib/performance-in
 import type { Timetable } from "@/lib/timetable"
 import { PageHeader } from "@/components/page-header"
 import { UpcomingExamsCard } from "@/components/upcoming-exams-card"
+import { PerformanceContextInsights } from "@/components/performance-context-insights"
 import { ExamTable } from "@/components/exam-table"
 import { getExamTarget } from "@/lib/exam-target"
 import { getAttemptPerformance, weightedPerformanceAverage, type ExamDifficultySettings } from "@/lib/exam-difficulty"
@@ -627,6 +628,7 @@ export function Dashboard(props: DashboardProps) {
           {section === "insights" ? (
             <div className="grid gap-6">
               <ImprovementSignals data={data} />
+              <PerformanceContextInsights attempts={data.attempts} sacRecords={data.sacRecords} />
               <Suspense fallback={<Skeleton className="h-96 w-full" />}>
                 <PerformanceTrendChart attempts={data.attempts} references={references} preferredSubjects={data.subjects} difficultySettings={data.examDifficulty} />
               </Suspense>

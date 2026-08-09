@@ -35,6 +35,11 @@ describe("SAC tracking", () => {
     expect(migrateSacRecords([legacy])).toEqual([{ ...legacy, provider: "School" }])
   })
 
+  test("accepts valid performance context and rejects invalid ratings", () => {
+    expect(isSacRecord({ ...base, performanceContext: { sleepHours: 7.5, energy: 4, focus: 5, stress: 2 } })).toBe(true)
+    expect(isSacRecord({ ...base, performanceContext: { confidence: 6 } })).toBe(false)
+  })
+
   test("computes weighted results, trends, time, and upcoming work", () => {
     const second = { ...base, id: "sac-2", title: "Probability SAC", scheduledAt: "2026-09-01", completedAt: "2026-09-01", score: 45, weighting: 30, timing: undefined }
     const upcoming = { ...base, id: "sac-3", title: "Statistics SAC", scheduledAt: "2026-10-01", score: undefined, maxScore: undefined, completedAt: undefined, timing: undefined }

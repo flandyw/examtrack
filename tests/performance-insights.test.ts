@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import type { ExamAttempt, Mistake } from "../src/lib/exam-data"
 import { buildFocusPriorities, buildReviewForecast, buildSubjectOutlooks } from "../src/lib/performance-insights"
+import { buildPerformanceContextAnalysis, isPerformanceContext } from "../src/lib/performance-context"
+import type { SacRecord } from "../src/lib/sac"
 
 function makeAttempt(id: string, score: number, completedAt: string): ExamAttempt {
   return {
@@ -75,5 +77,38 @@ describe("performance insights", () => {
 
     expect(forecast.map((day) => day.due)).toEqual([1, 1, 0])
     expect(forecast[0].label).toBe("Today")
+  })
+
+  test("finds favourable mental-state patterns across exams and SACs", () => {
+    const attempts = [
+      { ...makeAttempt("attempt-1", 55, "2026-07-01"), performanceContext: { sleepHours: 6, focus: 2 as const, stress: 5 as const } },
+      { ...makeAttempt("attempt-2", 70, "2026-07-08"), performanceContext: { sleepHours: 7, focus: 3 as const, stress: 3 as const } },
+      { ...makeAttempt("attempt-3", 85, "2026-07-15"), performanceContext: { sleepHours: 8, focus: 4 as const, stress: 1 as const } },
+    ]
+    const sac: SacRecord = {
+      id: "sac-1",
+      subject: "Mathematical Methods",
+      provider: "School",
+      title: "Calculus SAC",
+      unit: 3,
+      scheduledAt: "2026-07-20",
+      durationMinutes: 50,
+      score: 90,
+      maxScore: 100,
+      performanceContext: { sleepHours: 8.5, focus: 5, stress: 1 },
+      createdAt: "2026-07-20T00:00:00.000Z",
+      updatedAt: "2026-07-20T00:00:00.000Z",
+    }
+    const analysis = buildPerformanceContextAnalysis(attempts, [sac])
+
+    expect(analysis).toMatchObject({ completedAssessments: 4, recordedAssessments: 4 })
+    expect(analysis.insights.find((item) => item.key === "focus")?.favourableChange).toBeGreaterThan(0)
+    expect(analysis.insights.find((item) => item.key === "stress")?.favourableChange).toBeGreaterThan(0)
+  })
+
+  test("requires valid optional context ratings", () => {
+    expect(isPerformanceContext({ sleepHours: 7.5, energy: 4, stress: 2 })).toBe(true)
+    expect(isPerformanceContext({ sleepHours: 25 })).toBe(false)
+    expect(isPerformanceContext({ focus: 0 })).toBe(false)
   })
 })

@@ -153,6 +153,8 @@ describe("exam analysis", () => {
       completedExamIdsUpdatedAt: "1970-01-01T00:00:00.000Z",
     }
     expect(isAppData(data)).toBe(true)
+    expect(isAppData({ ...data, attempts: [{ ...attempt, performanceContext: { sleepHours: 7.5, focus: 4, stress: 2 } }] })).toBe(true)
+    expect(isAppData({ ...data, attempts: [{ ...attempt, performanceContext: { preparedness: 8 } }] })).toBe(false)
     expect(parseAppDataFile(JSON.stringify(data))).toEqual(data)
   })
 

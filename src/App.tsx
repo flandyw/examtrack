@@ -398,7 +398,7 @@ export default function App() {
       </SidebarInset>
       {examOpen ? (
         <Suspense fallback={null}>
-          <ExamSheet open references={references} preferredSubjects={data.subjects} comparisonYear={comparisonYear} initialAttempt={editingAttempt} onOpenChange={setExamOpen} onSave={saveAttempt} />
+          <ExamSheet open references={references} attempts={data.attempts} studies={resourceStudies} preferredSubjects={data.subjects} comparisonYear={comparisonYear} difficultySettings={data.examDifficulty} initialAttempt={editingAttempt} onOpenChange={setExamOpen} onSave={saveAttempt} />
         </Suspense>
       ) : null}
       {mistakeOpen ? (

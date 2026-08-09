@@ -1,3 +1,5 @@
+import { isPerformanceContext, type PerformanceContext } from "@/lib/performance-context"
+
 export type SacUnit = 3 | 4
 
 export type SacTiming = {
@@ -22,6 +24,7 @@ export type SacRecord = {
   weighting?: number
   completedAt?: string
   notes?: string
+  performanceContext?: PerformanceContext
   timing?: SacTiming
   createdAt: string
   updatedAt: string
@@ -104,6 +107,7 @@ export function isSacRecord(value: unknown): value is SacRecord {
     (record.weighting === undefined || typeof record.weighting === "number") &&
     (record.completedAt === undefined || typeof record.completedAt === "string") &&
     (record.notes === undefined || typeof record.notes === "string") &&
+    (record.performanceContext === undefined || isPerformanceContext(record.performanceContext)) &&
     timingValid &&
     typeof record.createdAt === "string" &&
     typeof record.updatedAt === "string" &&

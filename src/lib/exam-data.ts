@@ -1,5 +1,6 @@
 import { isExamDifficultySettings, type ExamDifficultySettings } from "@/lib/exam-difficulty"
 import { isSacRecord, migrateSacRecords, type SacRecord } from "@/lib/sac"
+import { isPerformanceContext, type PerformanceContext } from "@/lib/performance-context"
 
 export const MISTAKE_CATEGORIES = [
   "Concept",
@@ -46,6 +47,7 @@ export type ExamAttempt = {
   rawScore: number
   rawMax: number
   comment?: string
+  performanceContext?: PerformanceContext
   questionResults?: QuestionResult[]
   timing?: ExamTiming
   referenceId: string | null
@@ -736,6 +738,7 @@ export function isAppData(value: unknown): value is AppData {
           typeof attempt.rawScore === "number" &&
           typeof attempt.rawMax === "number" &&
           (attempt.comment === undefined || typeof attempt.comment === "string") &&
+          (attempt.performanceContext === undefined || isPerformanceContext(attempt.performanceContext)) &&
           (attempt.questionResults === undefined || Array.isArray(attempt.questionResults) && attempt.questionResults.every(isQuestionResult)) &&
           (attempt.timing === undefined || isExamTiming(attempt.timing)) &&
           (attempt.referenceId === null || typeof attempt.referenceId === "string") &&
