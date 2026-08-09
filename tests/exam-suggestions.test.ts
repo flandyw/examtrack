@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { buildCompanyExamSuggestions, buildExamSuggestions } from "../src/lib/exam-suggestions"
-import type { AssessmentReference, ExamAttempt } from "../src/lib/exam-data"
+import { analyseAttempt, type AssessmentReference, type ExamAttempt } from "../src/lib/exam-data"
 import type { VcaaStudyResources } from "../src/lib/vcaa-resources"
 
 function reference(year: number, paper: number, studyName = "Mathematical Methods"): AssessmentReference {
@@ -12,7 +12,7 @@ function reference(year: number, paper: number, studyName = "Mathematical Method
     year,
     gaCode: `GA ${paper + 1}`,
     name: `WRITTEN EXAMINATION ${paper}`,
-    maxScore: paper === 1 ? 40 : 80,
+    maxScore: studyName === "Mathematical Methods" ? (paper === 1 ? 80 : 160) : (paper === 1 ? 40 : 80),
     sourceUrl: "https://example.test",
     gradeBands: [],
   }
@@ -57,6 +57,17 @@ const archivedStudies: VcaaStudyResources[] = [{
 }]
 
 describe("next exam suggestions", () => {
+  test("uses raw Methods paper marks while retaining doubled distribution scaling", () => {
+    const methodsReferences = [reference(2025, 1), reference(2025, 2)]
+
+    expect(buildExamSuggestions([], methodsReferences, ["Mathematical Methods"], 2)).toEqual([
+      expect.objectContaining({ paper: "Exam 1", marks: 40 }),
+      expect.objectContaining({ paper: "Exam 2", marks: 80 }),
+    ])
+    expect(methodsReferences.map((item) => item.maxScore)).toEqual([80, 160])
+    expect(analyseAttempt({ rawScore: 30, rawMax: 40 }, methodsReferences[0]).scaledScore).toBe(60)
+  })
+
   test("continues the latest subject into the next exam years", () => {
     expect(buildExamSuggestions([attempt()], references, ["Mathematical Methods"])).toEqual([
       expect.objectContaining({ examYear: 2012, paper: "Exam 1" }),

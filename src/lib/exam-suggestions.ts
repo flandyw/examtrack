@@ -10,6 +10,7 @@ import {
   resolveDifficultySettings,
   type ExamDifficultySettings,
 } from "@/lib/exam-difficulty"
+import { getKnownExamMarks } from "@/lib/exam-conditions"
 
 export type ExamSuggestion = {
   subject: string
@@ -21,6 +22,10 @@ export type ExamSuggestion = {
 
 function paperOrder(paper: string) {
   return Number(paper.match(/\d+/)?.[0] ?? Number.MAX_SAFE_INTEGER)
+}
+
+function suggestionMarks(subject: string, paper: string, fallback: number) {
+  return getKnownExamMarks(subject, paper) ?? fallback
 }
 
 function suggestionKey(suggestion: Pick<ExamSuggestion, "subject" | "provider" | "examYear" | "paper">) {
@@ -70,7 +75,7 @@ export function buildExamSuggestions(
       provider: "VCAA",
       examYear: reference.year,
       paper: formatReferenceName(reference.name),
-      marks: reference.maxScore,
+      marks: suggestionMarks(reference.studyName, formatReferenceName(reference.name), reference.maxScore),
     }
     const key = suggestionKey(suggestion)
     if (!unique.has(key)) unique.set(key, suggestion)
@@ -87,7 +92,7 @@ export function buildExamSuggestions(
       provider: "VCAA",
       examYear: exam.year,
       paper,
-      marks: fallbackReference?.maxScore ?? 40,
+      marks: suggestionMarks(exam.studyName, paper, fallbackReference?.maxScore ?? 40),
     }
     const key = suggestionKey(suggestion)
     if (!unique.has(key)) unique.set(key, suggestion)
@@ -151,13 +156,16 @@ function getCompanyPaperTemplates(
   const templates = new Map<string, { paper: string; marks: number }>()
   for (const reference of subjectReferences.filter((reference) => reference.year === templateYear)) {
     const paper = formatReferenceName(reference.name)
-    templates.set(normaliseComparisonName(paper), { paper, marks: reference.maxScore })
+    templates.set(normaliseComparisonName(paper), {
+      paper,
+      marks: suggestionMarks(subject, paper, reference.maxScore),
+    })
   }
   if (!templates.size) {
     const latestPaperNumber = latest ? paperOrder(latest.paper) : Number.MAX_SAFE_INTEGER
     if (Number.isFinite(latestPaperNumber) && latestPaperNumber !== Number.MAX_SAFE_INTEGER) {
-      templates.set("exam 1", { paper: "Exam 1", marks: latest?.rawMax ?? 40 })
-      templates.set("exam 2", { paper: "Exam 2", marks: latest?.rawMax ?? 40 })
+      templates.set("exam 1", { paper: "Exam 1", marks: suggestionMarks(subject, "Exam 1", latest?.rawMax ?? 40) })
+      templates.set("exam 2", { paper: "Exam 2", marks: suggestionMarks(subject, "Exam 2", latest?.rawMax ?? 40) })
     } else {
       templates.set("exam", { paper: "Exam", marks: latest?.rawMax ?? 40 })
     }
