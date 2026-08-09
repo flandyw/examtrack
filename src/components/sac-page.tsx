@@ -13,11 +13,14 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTi
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { buildSacSubjectStats, computeSacStats, getUpcomingSacs, isCompletedSac, sacPercentage, type SacRecord } from "@/lib/sac"
+import type { SacTimerSession } from "@/lib/ongoing-timers"
 
 type SacPageProps = {
   records: SacRecord[]
   subjects: string[]
   preferredSubjects: string[]
+  activeTimer?: SacTimerSession
+  onTimerChange: (session: SacTimerSession | undefined) => void
   onSave: (record: SacRecord) => void
   onDelete: (record: SacRecord) => void
 }
@@ -90,9 +93,9 @@ function SacTrend({ records }: { records: SacRecord[] }) {
   )
 }
 
-export function SacPage({ records, subjects, preferredSubjects, onSave, onDelete }: SacPageProps) {
+export function SacPage({ records, subjects, preferredSubjects, activeTimer, onTimerChange, onSave, onDelete }: SacPageProps) {
   const [tab, setTab] = useState<"overview" | "timer">(() =>
-    typeof sessionStorage !== "undefined" && (
+    activeTimer || typeof sessionStorage !== "undefined" && (
       sessionStorage.getItem("examtrack.sac-timer") ||
       new URLSearchParams(location.search).get("timer") === "sac"
     ) ? "timer" : "overview"
@@ -130,7 +133,7 @@ export function SacPage({ records, subjects, preferredSubjects, onSave, onDelete
             <section aria-labelledby="all-sacs-title" className="grid gap-4"><div><h2 id="all-sacs-title" className="text-lg font-semibold">All SACs</h2><p className="text-sm text-muted-foreground">Upcoming plans and completed results in one place.</p></div><div className="overflow-x-auto rounded-lg border"><Table><TableHeader><TableRow><TableHead>SAC</TableHead><TableHead>Date</TableHead><TableHead>Status</TableHead><TableHead>Result</TableHead><TableHead>Timing</TableHead><TableHead className="w-12"><span className="sr-only">Actions</span></TableHead></TableRow></TableHeader><TableBody>{records.toSorted((a, b) => b.scheduledAt.localeCompare(a.scheduledAt)).map((record) => { const percentage = sacPercentage(record); return <TableRow key={record.id}><TableCell><div className="font-medium">{record.title}</div><div className="text-xs text-muted-foreground">{record.subject} · {record.provider}{record.sacNumber ? ` · SAC ${record.sacNumber}` : ""} · Unit {record.unit}{record.areaOfStudy ? ` · ${record.areaOfStudy}` : ""}</div></TableCell><TableCell className="whitespace-nowrap">{formatDate(record.scheduledAt)}</TableCell><TableCell><Badge variant={isCompletedSac(record) ? "secondary" : "outline"}>{isCompletedSac(record) ? "Completed" : "Upcoming"}</Badge></TableCell><TableCell className="tabular-nums">{percentage === null ? "—" : <><div>{percentage.toFixed(1)}%</div><div className="text-xs text-muted-foreground">{record.score}/{record.maxScore}</div></>}</TableCell><TableCell className="whitespace-nowrap text-sm tabular-nums">{record.timing ? <><div>{formatDuration(record.timing.actualSeconds)}</div>{record.timing.overtimeSeconds ? <div className="text-xs text-destructive">+{formatDuration(record.timing.overtimeSeconds)}</div> : null}</> : `${record.durationMinutes} min planned`}</TableCell><TableCell><DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" />}><MoreHorizontal /><span className="sr-only">SAC actions</span></DropdownMenuTrigger><DropdownMenuContent align="end">{!isCompletedSac(record) ? <DropdownMenuItem onClick={() => startTimer(record)}><Play />Start timer</DropdownMenuItem> : null}<DropdownMenuItem onClick={() => { setEditing(record); setSheetOpen(true) }}><Pencil />Edit SAC</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem variant="destructive" onClick={() => onDelete(record)}><Trash2 />Delete SAC</DropdownMenuItem></DropdownMenuContent></DropdownMenu></TableCell></TableRow> })}</TableBody></Table></div></section>
           </> : <Empty className="min-h-[24rem] border"><EmptyHeader><EmptyMedia variant="icon"><CalendarClock /></EmptyMedia><EmptyTitle>Track your first SAC</EmptyTitle><EmptyDescription>Plan an upcoming assessment or log a completed result to begin building subject statistics.</EmptyDescription></EmptyHeader><EmptyContent><div className="flex flex-wrap justify-center gap-2"><Button variant="outline" onClick={() => startTimer()}><Clock3 />Start timer</Button><Button onClick={() => setSheetOpen(true)}><Plus />Plan or log SAC</Button></div></EmptyContent></Empty>}
         </TabsContent>
-        <TabsContent value="timer" className="mt-4"><SacTimer key={timerRecord?.id ?? "manual"} records={records} subjects={allSubjects} preferredSubjects={preferredSubjects} initialRecord={timerRecord} onSave={(record) => { save(record); setTimerRecord(null); setTab("overview") }} /></TabsContent>
+        <TabsContent value="timer" className="mt-4"><SacTimer key={timerRecord?.id ?? "manual"} records={records} subjects={allSubjects} preferredSubjects={preferredSubjects} initialRecord={timerRecord} activeSession={activeTimer} onSessionChange={onTimerChange} onSave={(record) => { save(record); setTimerRecord(null); setTab("overview") }} /></TabsContent>
       </Tabs>
       {sheetOpen ? <SacSheet open subjects={allSubjects} preferredSubjects={preferredSubjects} initialRecord={editing} onOpenChange={(open) => { setSheetOpen(open); if (!open) setEditing(null) }} onSave={save} /> : null}
     </div>

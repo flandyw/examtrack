@@ -1,6 +1,7 @@
 import { isExamDifficultySettings, type ExamDifficultySettings } from "@/lib/exam-difficulty"
 import { isSacRecord, migrateSacRecords, type SacRecord } from "@/lib/sac"
 import { isPerformanceContext, type PerformanceContext } from "@/lib/performance-context"
+import { isExamTimerSession, isSacTimerSession, type ExamTimerSession, type SacTimerSession } from "@/lib/ongoing-timers"
 
 export const MISTAKE_CATEGORIES = [
   "Concept",
@@ -143,6 +144,10 @@ export type AppData = {
   trackedExamIdsUpdatedAt: string
   completedExamIds: string[]
   completedExamIdsUpdatedAt: string
+  activeExamTimer?: ExamTimerSession
+  activeExamTimerUpdatedAt: string
+  activeSacTimer?: SacTimerSession
+  activeSacTimerUpdatedAt: string
   mistakeInsights?: MistakeInsights
   examDifficulty?: ExamDifficultySettings
 }
@@ -159,6 +164,8 @@ export const EMPTY_APP_DATA: AppData = {
   trackedExamIdsUpdatedAt: "1970-01-01T00:00:00.000Z",
   completedExamIds: [],
   completedExamIdsUpdatedAt: "1970-01-01T00:00:00.000Z",
+  activeExamTimerUpdatedAt: "1970-01-01T00:00:00.000Z",
+  activeSacTimerUpdatedAt: "1970-01-01T00:00:00.000Z",
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -802,6 +809,10 @@ export function isAppData(value: unknown): value is AppData {
     typeof data.trackedExamIdsUpdatedAt === "string" &&
     completedExamIdsValid &&
     typeof data.completedExamIdsUpdatedAt === "string" &&
+    (data.activeExamTimer === undefined || isExamTimerSession(data.activeExamTimer)) &&
+    typeof data.activeExamTimerUpdatedAt === "string" &&
+    (data.activeSacTimer === undefined || isSacTimerSession(data.activeSacTimer)) &&
+    typeof data.activeSacTimerUpdatedAt === "string" &&
     (data.mistakeInsights === undefined || isMistakeInsights(data.mistakeInsights)) &&
     (data.examDifficulty === undefined || isExamDifficultySettings(data.examDifficulty))
   )
@@ -860,6 +871,10 @@ export function migrateAppData(value: unknown): AppData | null {
     trackedExamIdsUpdatedAt: typeof data.trackedExamIdsUpdatedAt === "string" ? data.trackedExamIdsUpdatedAt : "1970-01-01T00:00:00.000Z",
     completedExamIds: Array.isArray(data.completedExamIds) ? data.completedExamIds : [],
     completedExamIdsUpdatedAt: typeof data.completedExamIdsUpdatedAt === "string" ? data.completedExamIdsUpdatedAt : "1970-01-01T00:00:00.000Z",
+    activeExamTimer: isExamTimerSession(data.activeExamTimer) ? data.activeExamTimer : undefined,
+    activeExamTimerUpdatedAt: typeof data.activeExamTimerUpdatedAt === "string" ? data.activeExamTimerUpdatedAt : "1970-01-01T00:00:00.000Z",
+    activeSacTimer: isSacTimerSession(data.activeSacTimer) ? data.activeSacTimer : undefined,
+    activeSacTimerUpdatedAt: typeof data.activeSacTimerUpdatedAt === "string" ? data.activeSacTimerUpdatedAt : "1970-01-01T00:00:00.000Z",
     sacRecords,
     sacRecordsUpdatedAt: typeof data.sacRecordsUpdatedAt === "string" ? data.sacRecordsUpdatedAt : "1970-01-01T00:00:00.000Z",
   }

@@ -4,6 +4,7 @@ import { EMPTY_APP_DATA, migrateAppData, type AppData, type ExamAttempt, type Mi
 import { supabase } from "@/lib/supabase"
 import { isExamDifficultySettings } from "@/lib/exam-difficulty"
 import { migrateSacRecords, type SacRecord } from "@/lib/sac"
+import { isExamTimerSession, isSacTimerSession, mergeTimerSession } from "@/lib/ongoing-timers"
 
 const TOMBSTONE_KEY = "examtrack:sync:tombstones:v1"
 const OWNER_KEY = "examtrack:sync:owner:v1"
@@ -163,7 +164,7 @@ export async function syncAppData(data: AppData, userId: string): Promise<AppDat
     syncCollection<ExamAttempt>("attempts", userId, data.attempts, attemptRows, tombstones.attempts),
     syncCollection<Mistake>("mistakes", userId, data.mistakes, mistakeRows, tombstones.mistakes),
   ])
-  const remoteState = stateResult.data?.payload as { trackedExamIds?: unknown; trackedExamIdsUpdatedAt?: unknown; completedExamIds?: unknown; completedExamIdsUpdatedAt?: unknown; subjects?: unknown; subjectsUpdatedAt?: unknown; sacRecords?: unknown; sacRecordsUpdatedAt?: unknown; mistakeInsights?: unknown; examDifficulty?: unknown } | undefined
+  const remoteState = stateResult.data?.payload as { trackedExamIds?: unknown; trackedExamIdsUpdatedAt?: unknown; completedExamIds?: unknown; completedExamIdsUpdatedAt?: unknown; subjects?: unknown; subjectsUpdatedAt?: unknown; sacRecords?: unknown; sacRecordsUpdatedAt?: unknown; activeExamTimer?: unknown; activeExamTimerUpdatedAt?: unknown; activeSacTimer?: unknown; activeSacTimerUpdatedAt?: unknown; mistakeInsights?: unknown; examDifficulty?: unknown } | undefined
   const remoteIds = Array.isArray(remoteState?.trackedExamIds) && remoteState.trackedExamIds.every((id) => typeof id === "string") ? remoteState.trackedExamIds : []
   const remoteUpdatedAt = typeof remoteState?.trackedExamIdsUpdatedAt === "string" ? remoteState.trackedExamIdsUpdatedAt : (stateResult.data?.updated_at ?? "")
   const { trackedExamIds, trackedExamIdsUpdatedAt } = mergeTrackedState(data.trackedExamIds, data.trackedExamIdsUpdatedAt, remoteIds, remoteUpdatedAt)
@@ -180,6 +181,22 @@ export async function syncAppData(data: AppData, userId: string): Promise<AppDat
   const remoteSacRecords = migrateSacRecords(remoteState?.sacRecords) ?? []
   const remoteSacUpdatedAt = typeof remoteState?.sacRecordsUpdatedAt === "string" ? remoteState.sacRecordsUpdatedAt : ""
   const { sacRecords, sacRecordsUpdatedAt } = mergeSacState(data.sacRecords, data.sacRecordsUpdatedAt, remoteSacRecords, remoteSacUpdatedAt)
+  const remoteExamTimer = isExamTimerSession(remoteState?.activeExamTimer) ? remoteState.activeExamTimer : undefined
+  const remoteExamTimerUpdatedAt = typeof remoteState?.activeExamTimerUpdatedAt === "string" ? remoteState.activeExamTimerUpdatedAt : ""
+  const { session: activeExamTimer, updatedAt: activeExamTimerUpdatedAt } = mergeTimerSession(
+    data.activeExamTimer,
+    data.activeExamTimerUpdatedAt,
+    remoteExamTimer,
+    remoteExamTimerUpdatedAt,
+  )
+  const remoteSacTimer = isSacTimerSession(remoteState?.activeSacTimer) ? remoteState.activeSacTimer : undefined
+  const remoteSacTimerUpdatedAt = typeof remoteState?.activeSacTimerUpdatedAt === "string" ? remoteState.activeSacTimerUpdatedAt : ""
+  const { session: activeSacTimer, updatedAt: activeSacTimerUpdatedAt } = mergeTimerSession(
+    data.activeSacTimer,
+    data.activeSacTimerUpdatedAt,
+    remoteSacTimer,
+    remoteSacTimerUpdatedAt,
+  )
   const remoteInsights = migrateAppData({ ...EMPTY_APP_DATA, mistakeInsights: remoteState?.mistakeInsights })?.mistakeInsights
   const mistakeInsights = mergeMistakeInsights(data.mistakeInsights, remoteInsights)
   const remoteDifficulty = isExamDifficultySettings(remoteState?.examDifficulty) ? remoteState.examDifficulty : undefined
@@ -188,12 +205,12 @@ export async function syncAppData(data: AppData, userId: string): Promise<AppDat
     : data.examDifficulty
   const { error: stateError } = await supabase.from("user_state").upsert({
     user_id: userId,
-    payload: { trackedExamIds, trackedExamIdsUpdatedAt, completedExamIds, completedExamIdsUpdatedAt, subjects, subjectsUpdatedAt, sacRecords, sacRecordsUpdatedAt, mistakeInsights, examDifficulty },
-    updated_at: [trackedExamIdsUpdatedAt, completedExamIdsUpdatedAt, subjectsUpdatedAt, sacRecordsUpdatedAt, mistakeInsights?.questionsGeneratedAt ?? mistakeInsights?.generatedAt ?? "", examDifficulty?.updatedAt ?? ""].toSorted().at(-1),
+    payload: { trackedExamIds, trackedExamIdsUpdatedAt, completedExamIds, completedExamIdsUpdatedAt, subjects, subjectsUpdatedAt, sacRecords, sacRecordsUpdatedAt, activeExamTimer, activeExamTimerUpdatedAt, activeSacTimer, activeSacTimerUpdatedAt, mistakeInsights, examDifficulty },
+    updated_at: [trackedExamIdsUpdatedAt, completedExamIdsUpdatedAt, subjectsUpdatedAt, sacRecordsUpdatedAt, activeExamTimerUpdatedAt, activeSacTimerUpdatedAt, mistakeInsights?.questionsGeneratedAt ?? mistakeInsights?.generatedAt ?? "", examDifficulty?.updatedAt ?? ""].toSorted().at(-1),
   }, { onConflict: "user_id" })
   if (stateError) throw stateError
   saveTombstones(tombstones)
-  return { ...data, attempts: attempts ?? data.attempts, mistakes: mistakes ?? data.mistakes, subjects, subjectsUpdatedAt, trackedExamIds, trackedExamIdsUpdatedAt, completedExamIds, completedExamIdsUpdatedAt, sacRecords, sacRecordsUpdatedAt, mistakeInsights, examDifficulty }
+  return { ...data, attempts: attempts ?? data.attempts, mistakes: mistakes ?? data.mistakes, subjects, subjectsUpdatedAt, trackedExamIds, trackedExamIdsUpdatedAt, completedExamIds, completedExamIdsUpdatedAt, sacRecords, sacRecordsUpdatedAt, activeExamTimer, activeExamTimerUpdatedAt, activeSacTimer, activeSacTimerUpdatedAt, mistakeInsights, examDifficulty }
 }
 
 export type SyncStatus = "unconfigured" | "signed-out" | "syncing" | "synced" | "error"

@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react"
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import { Check, Clock3, Pause, Play, RotateCcw } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -16,40 +16,21 @@ import { formatTimer } from "@/lib/exam-timer"
 import { getSacTimerState, validateSac, type SacRecord, type SacUnit } from "@/lib/sac"
 import {
   createFocalTimerLink,
-  isFocalTimerLink,
   pauseFocalTimer,
   publishFocalTimer,
   resumeFocalTimer,
-  type FocalTimerLink,
 } from "@/lib/focal-timer"
 import { prioritiseSubjects } from "@/lib/subjects"
 import { hasPerformanceContext, type PerformanceContext } from "@/lib/performance-context"
-
-type SacTimerSession = {
-  recordId?: string
-  subject: string
-  provider: string
-  title: string
-  sacNumber?: string
-  unit: SacUnit
-  areaOfStudy?: string
-  scheduledAt: string
-  durationMinutes: number
-  maxScore: number
-  weighting?: number
-  notes?: string
-  createdAt?: string
-  startedAt: number
-  pausedAt?: number
-  pausedSeconds: number
-  focal?: FocalTimerLink
-}
+import { isSacTimerSession, type SacTimerSession } from "@/lib/ongoing-timers"
 
 type SacTimerProps = {
   records: SacRecord[]
   subjects: string[]
   preferredSubjects: string[]
   initialRecord?: SacRecord | null
+  activeSession?: SacTimerSession
+  onSessionChange: (session: SacTimerSession | undefined) => void
   onSave: (record: SacRecord) => void
 }
 
@@ -58,24 +39,17 @@ const today = () => new Date().toISOString().slice(0, 10)
 
 function loadSession(): SacTimerSession | null {
   try {
-    const value = JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "null") as Partial<SacTimerSession> | null
+    const value = JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "null") as Record<string, unknown> | null
     if (value && typeof value.provider !== "string") value.provider = "School"
-    return value && typeof value.subject === "string" && typeof value.title === "string" &&
-      typeof value.provider === "string" && (value.sacNumber === undefined || typeof value.sacNumber === "string") &&
-      (value.unit === 3 || value.unit === 4) && typeof value.scheduledAt === "string" &&
-      typeof value.durationMinutes === "number" && typeof value.maxScore === "number" &&
-      typeof value.startedAt === "number" && typeof value.pausedSeconds === "number" &&
-      (value.pausedAt === undefined || typeof value.pausedAt === "number") &&
-      (value.focal === undefined || isFocalTimerLink(value.focal))
-      ? value as SacTimerSession
-      : null
+    return isSacTimerSession(value) ? value : null
   } catch {
     return null
   }
 }
 
-export function SacTimer({ records, subjects, preferredSubjects, initialRecord, onSave }: SacTimerProps) {
-  const [session, setSession] = useState<SacTimerSession | null>(loadSession)
+export function SacTimer({ records, subjects, preferredSubjects, initialRecord, activeSession, onSessionChange, onSave }: SacTimerProps) {
+  const migratedLegacySession = useRef(false)
+  const session = activeSession ?? null
   const availableSubjects = useMemo(() => prioritiseSubjects(subjects, preferredSubjects), [preferredSubjects, subjects])
   const [subject, setSubject] = useState(initialRecord?.subject ?? preferredSubjects[0] ?? availableSubjects[0] ?? "")
   const [provider, setProvider] = useState(initialRecord?.provider ?? "")
@@ -92,6 +66,22 @@ export function SacTimer({ records, subjects, preferredSubjects, initialRecord, 
   const [performanceContext, setPerformanceContext] = useState<PerformanceContext>(initialRecord?.performanceContext ?? {})
   const [error, setError] = useState<string | null>(null)
   const now = useTickingNow(250)
+
+  useEffect(() => {
+    if (!migratedLegacySession.current) {
+      migratedLegacySession.current = true
+      const legacySession = loadSession()
+      if (!activeSession && legacySession) onSessionChange(legacySession)
+    }
+    if (activeSession) sessionStorage.setItem(STORAGE_KEY, JSON.stringify(activeSession))
+    else sessionStorage.removeItem(STORAGE_KEY)
+  }, [activeSession, onSessionChange])
+
+  function saveSession(next: SacTimerSession | undefined) {
+    if (next) sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+    else sessionStorage.removeItem(STORAGE_KEY)
+    onSessionChange(next)
+  }
   const timer = useMemo(() => session
     ? getSacTimerState(session.pausedAt ?? now.getTime(), session.startedAt, session.durationMinutes)
     : null, [now, session])
@@ -120,8 +110,7 @@ export function SacTimer({ records, subjects, preferredSubjects, initialRecord, 
       pausedSeconds: 0,
       focal,
     }
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-    setSession(next)
+    saveSession(next)
     setError(null)
     void publishFocalTimer(focal, "in-progress")
   }
@@ -130,8 +119,7 @@ export function SacTimer({ records, subjects, preferredSubjects, initialRecord, 
     if (!session || session.pausedAt) return
     const focal = session.focal ? pauseFocalTimer(session.focal) : undefined
     const next = { ...session, pausedAt: Date.now(), focal }
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-    setSession(next)
+    saveSession(next)
     if (focal) void publishFocalTimer(focal, "in-progress")
   }
 
@@ -146,16 +134,14 @@ export function SacTimer({ records, subjects, preferredSubjects, initialRecord, 
       pausedSeconds: session.pausedSeconds + Math.floor(pauseDuration / 1000),
       focal,
     }
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-    setSession(next)
+    saveSession(next)
     if (focal) void publishFocalTimer(focal, "in-progress")
   }
 
   function discard() {
     if (!window.confirm("Discard this timed SAC and return to setup?")) return
     if (session?.focal) void publishFocalTimer(session.focal, "delete")
-    sessionStorage.removeItem(STORAGE_KEY)
-    setSession(null)
+    saveSession(undefined)
     setMarkingOpen(false)
   }
 
@@ -213,8 +199,7 @@ export function SacTimer({ records, subjects, preferredSubjects, initialRecord, 
       updatedAt: timestamp,
     })
     if (session.focal) void publishFocalTimer(session.focal, "completed")
-    sessionStorage.removeItem(STORAGE_KEY)
-    setSession(null)
+    saveSession(undefined)
     setMarkingOpen(false)
   }
 

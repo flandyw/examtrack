@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react"
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import { Check, Clock3, Pause, Play, RotateCcw } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -22,60 +22,39 @@ import { PerformanceContextFields } from "@/components/performance-context-field
 import { useTickingNow } from "@/hooks/use-ticking-now"
 import { formatExamTitle, formatReferenceName, validateAttempt, validateQuestionResults, type AssessmentReference, type ExamAttempt, type QuestionResult } from "@/lib/exam-data"
 import { buildCompanyExamSuggestions, buildExamSuggestions, findLatestAttempt, type ExamSuggestion } from "@/lib/exam-suggestions"
+import { getKnownExamConditions } from "@/lib/exam-conditions"
 import { formatTimer, getExamTimerState } from "@/lib/exam-timer"
 import {
   createFocalTimerLink,
-  isFocalTimerLink,
   pauseFocalTimer,
   publishFocalTimer,
   resumeFocalTimer,
-  type FocalTimerLink,
 } from "@/lib/focal-timer"
 import { loadAppData } from "@/lib/storage"
 import { firstPreferredSubject, prioritiseSubjects } from "@/lib/subjects"
 import { hasPerformanceContext, type PerformanceContext } from "@/lib/performance-context"
 import type { VcaaStudyResources } from "@/lib/vcaa-resources"
+import { isExamTimerSession, type ExamTimerSession } from "@/lib/ongoing-timers"
 
-type TimerSession = {
-  subject: string
-  provider: string
-  title: string
-  examYear: number
-  paper: string
-  readingMinutes: number
-  writingMinutes: number
-  marks: number
-  startedAt: number
-  pausedAt?: number
-  pausedSeconds: number
-  focal?: FocalTimerLink
-}
-
-export type ExamTimerPreset = Pick<TimerSession, "subject" | "provider" | "examYear" | "paper" | "marks"> & Partial<Pick<TimerSession, "readingMinutes" | "writingMinutes">>
+export type ExamTimerPreset = Pick<ExamTimerSession, "subject" | "provider" | "examYear" | "paper" | "marks"> & Partial<Pick<ExamTimerSession, "readingMinutes" | "writingMinutes">>
 
 type ExamTimerProps = {
   references: AssessmentReference[]
   studies: VcaaStudyResources[]
   preferredSubjects: string[]
   initialExam?: ExamTimerPreset | null
+  activeSession?: ExamTimerSession
+  onSessionChange: (session: ExamTimerSession | undefined) => void
   onSave: (attempt: ExamAttempt) => void
 }
 
 const STORAGE_KEY = "examtrack.timer"
 const today = () => new Date().toISOString().slice(0, 10)
 
-function loadSession(): TimerSession | null {
+function loadSession(): ExamTimerSession | null {
   try {
-    const value = JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "null") as Partial<TimerSession> | null
-    return value && typeof value.subject === "string" && typeof value.provider === "string" &&
-      typeof value.title === "string" && typeof value.examYear === "number" && typeof value.paper === "string" &&
-      typeof value.startedAt === "number" && typeof value.readingMinutes === "number" &&
-      typeof value.writingMinutes === "number" && typeof value.marks === "number" &&
-      (value.pausedAt === undefined || typeof value.pausedAt === "number") &&
-      (value.pausedSeconds === undefined || typeof value.pausedSeconds === "number") &&
-      (value.focal === undefined || isFocalTimerLink(value.focal))
-      ? value as TimerSession
-      : null
+    const value: unknown = JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "null")
+    return isExamTimerSession(value) ? value : null
   } catch {
     return null
   }
@@ -103,8 +82,9 @@ function SuggestionButton({ suggestion, onClick, showProvider = false }: {
   )
 }
 
-export function ExamTimer({ references, studies, preferredSubjects, initialExam, onSave }: ExamTimerProps) {
-  const [session, setSession] = useState<TimerSession | null>(loadSession)
+export function ExamTimer({ references, studies, preferredSubjects, initialExam, activeSession, onSessionChange, onSave }: ExamTimerProps) {
+  const migratedLegacySession = useRef(false)
+  const session = activeSession ?? null
   const [subject, setSubject] = useState(initialExam?.subject ?? firstPreferredSubject(references.map((item) => item.studyName), preferredSubjects))
   const [provider, setProvider] = useState(initialExam?.provider ?? "VCAA")
   const [examYear, setExamYear] = useState(initialExam?.examYear ?? new Date().getFullYear())
@@ -132,6 +112,22 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
   const latestAttempt = useMemo(() => findLatestAttempt(history.attempts), [history.attempts])
   const now = useTickingNow(250)
 
+  useEffect(() => {
+    if (!migratedLegacySession.current) {
+      migratedLegacySession.current = true
+      const legacySession = loadSession()
+      if (!activeSession && legacySession) onSessionChange(legacySession)
+    }
+    if (activeSession) sessionStorage.setItem(STORAGE_KEY, JSON.stringify(activeSession))
+    else sessionStorage.removeItem(STORAGE_KEY)
+  }, [activeSession, onSessionChange])
+
+  function saveSession(next: ExamTimerSession | undefined) {
+    if (next) sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+    else sessionStorage.removeItem(STORAGE_KEY)
+    onSessionChange(next)
+  }
+
   const subjects = useMemo(() => prioritiseSubjects(references.map((item) => item.studyName), preferredSubjects), [preferredSubjects, references])
   const paperOptions = useMemo(
     () => [...new Set(references
@@ -144,12 +140,17 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
     : null, [now, session])
 
   function applySuggestion(suggestion: ExamSuggestion) {
+    const conditions = getKnownExamConditions(suggestion.subject, suggestion.paper)
     setSubject(suggestion.subject)
     setProvider(suggestion.provider)
     setExamYear(suggestion.examYear)
     setPaper(suggestion.paper)
     setMarks(suggestion.marks)
     setRawMax(suggestion.marks)
+    if (conditions) {
+      setReadingMinutes(conditions.readingMinutes)
+      setWritingMinutes(conditions.writingMinutes)
+    }
   }
 
   function start(event: FormEvent) {
@@ -164,8 +165,7 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
       subject: subject.trim(), provider: provider.trim(), title: formatExamTitle(provider, examYear, subject), examYear, paper: paper.trim(),
       readingMinutes, writingMinutes, marks, startedAt: Date.now(), pausedSeconds: 0, focal,
     }
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-    setSession(next)
+    saveSession(next)
     setRawMax(marks)
     void publishFocalTimer(focal, "in-progress")
   }
@@ -173,24 +173,21 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
   function reset() {
     if (timer?.phase !== "overtime" && !window.confirm("Discard this timed exam and return to setup?")) return
     if (session?.focal) void publishFocalTimer(session.focal, "delete")
-    sessionStorage.removeItem(STORAGE_KEY)
-    setSession(null)
+    saveSession(undefined)
     setMarkingOpen(false)
   }
 
   function skipReading() {
     if (!session || !timer) return
     const next = { ...session, startedAt: Date.now() - session.readingMinutes * 60_000 }
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-    setSession(next)
+    saveSession(next)
   }
 
   function pause() {
     if (!session || session.pausedAt) return
     const focal = session.focal ? pauseFocalTimer(session.focal) : undefined
     const next = { ...session, pausedAt: Date.now(), focal }
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-    setSession(next)
+    saveSession(next)
     if (focal) void publishFocalTimer(focal, "in-progress")
   }
 
@@ -199,8 +196,7 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
     const pauseDuration = Date.now() - session.pausedAt
     const focal = session.focal ? resumeFocalTimer(session.focal) : undefined
     const next = { ...session, startedAt: session.startedAt + pauseDuration, pausedAt: undefined, pausedSeconds: (session.pausedSeconds ?? 0) + Math.floor(pauseDuration / 1000), focal }
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-    setSession(next)
+    saveSession(next)
     if (focal) void publishFocalTimer(focal, "in-progress")
   }
 
@@ -253,9 +249,8 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
       updatedAt: timestamp,
     })
     if (session.focal) void publishFocalTimer(session.focal, "completed")
-    sessionStorage.removeItem(STORAGE_KEY)
+    saveSession(undefined)
     setMarkingOpen(false)
-    setSession(null)
   }
 
   if (!session || !timer) {

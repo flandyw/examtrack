@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { analyseAttempt, analyseScore, buildAttemptBenchmarks, buildCoverage, buildSubjectBenchmarks, buildVcaaYearInsights, computeDistributionStats, findAttemptReferenceForYear, formatExamTitle, getAttemptPoints, getDueMistakes, getMistakeSchedule, isAppData, matchesAttemptReference, migrateAppData, previewMistakeReview, recordMistakeReview, removeAttempt, validateAttempt, validateMistakeMarks, type AssessmentReference, type ExamAttempt, type Mistake } from "../src/lib/exam-data"
+import { analyseAttempt, analyseScore, buildAttemptBenchmarks, buildCoverage, buildSubjectBenchmarks, buildVcaaYearInsights, computeDistributionStats, EMPTY_APP_DATA, findAttemptReferenceForYear, formatExamTitle, getAttemptPoints, getDueMistakes, getMistakeSchedule, isAppData, matchesAttemptReference, migrateAppData, previewMistakeReview, recordMistakeReview, removeAttempt, validateAttempt, validateMistakeMarks, type AssessmentReference, type ExamAttempt, type Mistake } from "../src/lib/exam-data"
 import { parseAppDataFile } from "../src/lib/storage"
 import { buildTimetableCalendar, suggestTimetableForAttempt, type Timetable, type TimetableEntry } from "../src/lib/timetable"
 
@@ -140,17 +140,8 @@ describe("exam analysis", () => {
   test("rejects malformed imports", () => {
     expect(() => parseAppDataFile('{"schemaVersion":2}')).toThrow("valid ExamTrack")
     const data = {
-      schemaVersion: 4 as const,
+      ...EMPTY_APP_DATA,
       attempts: [attempt],
-      mistakes: [],
-      sacRecords: [],
-      sacRecordsUpdatedAt: "1970-01-01T00:00:00.000Z",
-      subjects: [],
-      subjectsUpdatedAt: "1970-01-01T00:00:00.000Z",
-      trackedExamIds: [],
-      trackedExamIdsUpdatedAt: "1970-01-01T00:00:00.000Z",
-      completedExamIds: [],
-      completedExamIdsUpdatedAt: "1970-01-01T00:00:00.000Z",
     }
     expect(isAppData(data)).toBe(true)
     expect(isAppData({ ...data, attempts: [{ ...attempt, performanceContext: { sleepHours: 7.5, focus: 4, stress: 2 } }] })).toBe(true)
@@ -245,7 +236,7 @@ describe("exam analysis", () => {
       createdAt: attempt.createdAt,
       updatedAt: attempt.updatedAt,
     }
-    const data = { schemaVersion: 4 as const, attempts: [attempt], mistakes: [mistake], sacRecords: [], sacRecordsUpdatedAt: "1970-01-01T00:00:00.000Z", subjects: [], subjectsUpdatedAt: "1970-01-01T00:00:00.000Z", trackedExamIds: [], trackedExamIdsUpdatedAt: "1970-01-01T00:00:00.000Z", completedExamIds: [], completedExamIdsUpdatedAt: "1970-01-01T00:00:00.000Z" }
+    const data = { ...EMPTY_APP_DATA, attempts: [attempt], mistakes: [mistake] }
 
     expect(isAppData(data)).toBe(true)
     expect(isAppData({ ...data, mistakes: [{ ...mistake, questionText: "Differentiate $e^{2x}$." }] })).toBe(true)

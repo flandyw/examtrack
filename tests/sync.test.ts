@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { mergeCollection, mergeMistakeInsights, mergeSacState, mergeTrackedState } from "../src/lib/sync"
+import { mergeTimerSession } from "../src/lib/ongoing-timers"
 
 type Item = { id: string; updatedAt: string; value: string }
 
@@ -60,6 +61,15 @@ describe("sync merge", () => {
     const remote = [{ id: "remote" }] as never[]
     expect(mergeSacState(local, "2026-07-15T01:00:00.000Z", remote, "2026-07-15T02:00:00.000Z"))
       .toEqual({ sacRecords: remote, sacRecordsUpdatedAt: "2026-07-15T02:00:00.000Z" })
+  })
+
+  test("keeps the newest ongoing timer snapshot and its deletion", () => {
+    const local = { title: "Local timer" }
+    const remote = { title: "Remote timer" }
+    expect(mergeTimerSession(local, "2026-07-15T01:00:00.000Z", remote, "2026-07-15T02:00:00.000Z"))
+      .toEqual({ session: remote, updatedAt: "2026-07-15T02:00:00.000Z" })
+    expect(mergeTimerSession(remote, "2026-07-15T02:00:00.000Z", undefined, "2026-07-15T03:00:00.000Z"))
+      .toEqual({ session: undefined, updatedAt: "2026-07-15T03:00:00.000Z" })
   })
 
   test("keeps the newest saved mistake insights", () => {

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { buildCompanyExamSuggestions, buildExamSuggestions } from "../src/lib/exam-suggestions"
 import { analyseAttempt, type AssessmentReference, type ExamAttempt } from "../src/lib/exam-data"
+import { getKnownExamConditions } from "../src/lib/exam-conditions"
 import type { VcaaStudyResources } from "../src/lib/vcaa-resources"
 
 function reference(year: number, paper: number, studyName = "Mathematical Methods"): AssessmentReference {
@@ -66,6 +67,19 @@ describe("next exam suggestions", () => {
     ])
     expect(methodsReferences.map((item) => item.maxScore)).toEqual([80, 160])
     expect(analyseAttempt({ rawScore: 30, rawMax: 40 }, methodsReferences[0]).scaledScore).toBe(60)
+  })
+
+  test("uses the correct Methods reading and writing times", () => {
+    expect(getKnownExamConditions("Mathematical Methods", "Exam 1")).toEqual({
+      readingMinutes: 15,
+      writingMinutes: 60,
+      marks: 40,
+    })
+    expect(getKnownExamConditions("Mathematical Methods", "Exam 2")).toEqual({
+      readingMinutes: 15,
+      writingMinutes: 120,
+      marks: 80,
+    })
   })
 
   test("continues the latest subject into the next exam years", () => {
