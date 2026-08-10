@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test"
 import {
   DEFAULT_EXAM_DIFFICULTY,
+  MATHEMATICS_PROVIDER_DIFFICULTY,
   getAttemptPerformance,
   identifyDifficultyProvider,
+  resolveDifficultySettings,
   weightedPerformanceAverage,
   type ExamDifficultySettings,
 } from "../src/lib/exam-difficulty"
@@ -32,7 +34,7 @@ describe("exam difficulty calibration", () => {
   })
 
   test("raises hard-company marks conservatively and downweights their evidence", () => {
-    const result = getAttemptPerformance(attempt("iTute"), DEFAULT_EXAM_DIFFICULTY)
+    const result = getAttemptPerformance(attempt("iTute"), { ...DEFAULT_EXAM_DIFFICULTY, providerOrder: [...MATHEMATICS_PROVIDER_DIFFICULTY] })
     expect(result.alignedPercentage).toBe(66)
     expect(result.relevanceWeight).toBe(0.52)
   })
@@ -46,7 +48,10 @@ describe("exam difficulty calibration", () => {
   })
 
   test("weights VCAA more heavily than an extreme tutor-company result", () => {
-    const average = weightedPerformanceAverage([attempt("VCAA", 70), attempt("iTute", 40)], DEFAULT_EXAM_DIFFICULTY)
+    const average = weightedPerformanceAverage([attempt("VCAA", 70), attempt("iTute", 40)], {
+      ...DEFAULT_EXAM_DIFFICULTY,
+      providerOrder: [...MATHEMATICS_PROVIDER_DIFFICULTY],
+    })
     expect(average).toBeCloseTo(61.789, 2)
   })
 
@@ -54,5 +59,17 @@ describe("exam difficulty calibration", () => {
     expect(identifyDifficultyProvider(attempt("Hefferman"))).toBe("Heffernan")
     expect(identifyDifficultyProvider(attempt("Heffernan"))).toBe("Heffernan")
     expect(identifyDifficultyProvider(attempt("VCAA", 60, "VCAA Methods", "Northern Hemisphere Exam"))).toBe("VCAA NHT")
+  })
+
+  test("calibrates a custom provider and keeps removed defaults removed", () => {
+    const settings: ExamDifficultySettings = {
+      ...DEFAULT_EXAM_DIFFICULTY,
+      providerOrder: ["Custom Humanities Co", "VCAA"],
+    }
+    expect(resolveDifficultySettings(settings).providerOrder).toEqual(["Custom Humanities Co", "VCAA"])
+    expect(getAttemptPerformance(attempt("Custom Humanities Co"), settings)).toMatchObject({
+      provider: "Custom Humanities Co",
+      adjustment: 1.5,
+    })
   })
 })

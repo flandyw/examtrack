@@ -1,6 +1,15 @@
 import type { ExamAttempt } from "@/lib/exam-data"
 
 export const DEFAULT_PROVIDER_DIFFICULTY = [
+  "Kilbaha",
+  "VCAA NHT",
+  "VCAA",
+  "NEAP",
+  "Insight",
+  "TSSM",
+] as const
+
+export const MATHEMATICS_PROVIDER_DIFFICULTY = [
   "iTute",
   "MAV",
   "Kilbaha",
@@ -38,7 +47,10 @@ function normalise(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()
 }
 
-export function identifyDifficultyProvider(attempt: Pick<ExamAttempt, "provider" | "title" | "paper">): string | null {
+export function identifyDifficultyProvider(
+  attempt: Pick<ExamAttempt, "provider" | "title" | "paper">,
+  providerOrder: readonly string[] = DEFAULT_PROVIDER_DIFFICULTY,
+): string | null {
   const provider = normalise(attempt.provider)
   const combined = normalise(`${attempt.provider} ${attempt.title} ${attempt.paper}`)
   if (/\b(nht|northern hemisphere)\b/.test(combined)) return "VCAA NHT"
@@ -50,14 +62,20 @@ export function identifyDifficultyProvider(attempt: Pick<ExamAttempt, "provider"
   if (/\binsight\b/.test(provider)) return "Insight"
   if (/\b(?:heffernan|hefferman)\b/.test(provider)) return "Heffernan"
   if (/\btssm\b/.test(provider)) return "TSSM"
-  return null
+  return providerOrder.find((candidate) => normalise(candidate) === provider) ?? null
 }
 
 export function resolveDifficultySettings(settings?: ExamDifficultySettings): ExamDifficultySettings {
   if (!settings) return DEFAULT_EXAM_DIFFICULTY
-  const unique = settings.providerOrder.filter((provider, index, values) => provider.trim() && values.indexOf(provider) === index)
-  const missing = DEFAULT_PROVIDER_DIFFICULTY.filter((provider) => !unique.includes(provider))
-  return { ...settings, providerOrder: [...unique, ...missing] }
+  const seen = new Set<string>()
+  const unique = settings.providerOrder.filter((provider) => {
+    const key = normalise(provider)
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+  if (!seen.has("vcaa")) unique.push("VCAA")
+  return { ...settings, providerOrder: unique }
 }
 
 export type AttemptPerformance = {
@@ -71,7 +89,7 @@ export type AttemptPerformance = {
 export function getAttemptPerformance(attempt: ExamAttempt, settings?: ExamDifficultySettings): AttemptPerformance {
   const rawPercentage = attempt.rawMax > 0 ? attempt.rawScore / attempt.rawMax * 100 : 0
   const resolved = resolveDifficultySettings(settings)
-  const provider = identifyDifficultyProvider(attempt)
+  const provider = identifyDifficultyProvider(attempt, resolved.providerOrder)
   if (!resolved.enabled) {
     return { rawPercentage, alignedPercentage: rawPercentage, adjustment: 0, relevanceWeight: 1, provider }
   }

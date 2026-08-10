@@ -18,7 +18,7 @@ export function FocusPriorityChart({ attempts, mistakes }: { attempts: ExamAttem
   const top = priorities[0]
   const summary = top
     ? `${top.areaOfStudy} in ${top.subject} is the highest-leverage focus area, with a priority score of ${top.priorityScore.toFixed(0)}/100.`
-    : "Add Area of Study labels while marking questions or mistakes to calculate targeted priorities."
+    : "Add topic, skill, or Area of Study labels while marking assessment items or mistakes to calculate targeted priorities."
 
   return (
     <Card className="min-w-0">

@@ -90,11 +90,11 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
   const [examYear, setExamYear] = useState(initialExam?.examYear ?? new Date().getFullYear())
   const [paper, setPaper] = useState(initialExam?.paper ?? "")
   const [readingMinutes, setReadingMinutes] = useState(initialExam?.readingMinutes ?? 15)
-  const [writingMinutes, setWritingMinutes] = useState(initialExam?.writingMinutes ?? 60)
-  const [marks, setMarks] = useState(initialExam?.marks ?? 40)
+  const [writingMinutes, setWritingMinutes] = useState(initialExam?.writingMinutes ?? 120)
+  const [marks, setMarks] = useState(initialExam?.marks ?? 100)
   const [markingOpen, setMarkingOpen] = useState(false)
   const [rawScore, setRawScore] = useState(0)
-  const [rawMax, setRawMax] = useState(40)
+  const [rawMax, setRawMax] = useState(initialExam?.marks ?? 100)
   const [comment, setComment] = useState("")
   const [performanceContext, setPerformanceContext] = useState<PerformanceContext>({})
   const [completedAt, setCompletedAt] = useState(today)
@@ -314,7 +314,7 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
                   </Field>
                   <Field>
                     <FieldLabel htmlFor="timer-paper">Paper</FieldLabel>
-                    <Input id="timer-paper" list="timer-paper-options" value={paper} onChange={(event) => setPaper(event.target.value)} placeholder="Exam 1" />
+                    <Input id="timer-paper" list="timer-paper-options" value={paper} onChange={(event) => setPaper(event.target.value)} placeholder="Exam, paper, or assessment name" />
                     <datalist id="timer-paper-options">{paperOptions.map((item) => <option key={item} value={item} />)}</datalist>
                   </Field>
                 </div>

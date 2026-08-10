@@ -154,8 +154,8 @@ export async function generateAlternativeMistakeQuestions(mistakes: Mistake[], a
             properties: {
               sourceMistakeId: { type: "string", enum: sourceIds },
               skill: { type: "string", description: "A short label for the knowledge or process skill being tested" },
-              question: { type: "string", description: "A fully self-contained original question in Markdown, using LaTeX where useful" },
-              answer: { type: "string", description: "A concise worked answer in Markdown, using LaTeX where useful" },
+              question: { type: "string", description: "A fully self-contained original question or task in Markdown, using LaTeX only where useful" },
+              answer: { type: "string", description: "A concise model answer, response plan, or worked solution in Markdown, using LaTeX only where useful" },
               marks: { type: "integer", minimum: 1, maximum: 20 },
             },
           },
@@ -168,7 +168,7 @@ export async function generateAlternativeMistakeQuestions(mistakes: Mistake[], a
       maxOutputTokens: Math.max(1400, batch.length * 500),
       headers: { "x-login-with-chatgpt-reasoning-effort": settings.reasoningEffort },
       onChunk: createChatGPTProgressHandler(onProgress),
-      prompt: `Create exactly one original alternative question for every mistake record. Each question must test the same underlying knowledge or process as its source, while changing the values, wording, scenario, or required reasoning enough that it cannot be answered by memorising the source. Keep the difficulty and curriculum level comparable. Make every question self-contained, assign a realistic mark value, and provide a correct worked answer based on the corrected method. Do not copy source wording or reproduce proprietary exam material. Return every source id exactly once. Records: ${JSON.stringify(mistakeContext(batch, attempts))}`,
+      prompt: `Create exactly one original alternative question or task for every mistake record, regardless of subject. It must test the same underlying knowledge, evidence use, communication, reasoning, or process as its source while changing the values, wording, source material, scenario, or required reasoning enough that it cannot be answered by memorising the source. Keep the difficulty and curriculum level comparable. Make every task self-contained, assign a realistic mark value, and provide an appropriate model answer, response plan, or worked solution based on the improved response. Do not copy source wording or reproduce proprietary exam material. Return every source id exactly once. Records: ${JSON.stringify(mistakeContext(batch, attempts))}`,
     })
     const cards = (await result.output).cards
     const returnedIds = new Set(cards.map((card) => card.sourceMistakeId))
@@ -233,7 +233,7 @@ export async function generateMistakePracticeQuestions(insights: MistakeInsights
     additionalProperties: false,
     required: ["practiceQuestions"],
     properties: {
-      practiceQuestions: { type: "string", description: "A Markdown worksheet with 4-6 original questions using LaTeX for mathematical notation, followed by a separate answer section" },
+      practiceQuestions: { type: "string", description: "A Markdown worksheet with 4-6 original subject-appropriate questions or tasks, followed by a separate model answer section; use LaTeX only where useful" },
     },
   })
   const { practiceQuestions: _oldQuestions, questionsGeneratedAt: _oldQuestionsGeneratedAt, ...diagnosis } = insights
@@ -243,7 +243,7 @@ export async function generateMistakePracticeQuestions(insights: MistakeInsights
     maxOutputTokens: 1400,
     headers: { "x-login-with-chatgpt-reasoning-effort": settings.reasoningEffort },
     onChunk: createChatGPTProgressHandler(onProgress),
-    prompt: `Create 4-6 original practice questions that directly target these diagnosed gaps. Use Markdown with valid LaTeX ($...$ and $$...$$), do not copy the logged questions, order from easier to harder, include marks, then put worked answers in a separate section. Insights: ${JSON.stringify(diagnosis)}. Records: ${JSON.stringify(mistakeContext(mistakes, attempts))}`,
+    prompt: `Create 4-6 original, subject-appropriate practice questions or tasks that directly target these diagnosed gaps. Use Markdown and use valid LaTeX only when mathematical or scientific notation needs it. Do not copy the logged material. Order the tasks from easier to harder, include marks, then put model answers, response plans, or worked solutions in a separate section as appropriate to each subject. Insights: ${JSON.stringify(diagnosis)}. Records: ${JSON.stringify(mistakeContext(mistakes, attempts))}`,
   })
   return (await result.output).practiceQuestions.trim()
 }
@@ -273,11 +273,11 @@ export async function analyseMistakeImages(
     required: ["attemptId", "question", "questionText", "category", "explanation", "correction"],
     properties: {
       attemptId: { type: "string", enum: ["", ...attempts.map((attempt) => attempt.id)] },
-      question: { type: "string", description: "Short question identifier, such as Question 4b" },
-      questionText: { type: "string", description: "A fully self-contained, solvable version of the complete exam question, including every stem, stimulus, diagram, table, definition and referenced context needed to answer it, in Markdown with LaTeX where useful" },
+      question: { type: "string", description: "Short item identifier, such as Section B Question 4, Essay 1, or Task 2" },
+      questionText: { type: "string", description: "A fully self-contained version of the complete question or task, including every stem, source, stimulus, diagram, table, definition and referenced context needed to answer it, in Markdown with LaTeX only where useful" },
       category: { type: "string", enum: [...MISTAKE_CATEGORIES] },
       explanation: { type: "string", description: "What the student did wrong, in concise Markdown with LaTeX where useful" },
-      correction: { type: "string", description: "The correct method, in concise Markdown with LaTeX where useful" },
+      correction: { type: "string", description: "The improved response, evidence, structure, reasoning, or method, in concise Markdown with LaTeX only where useful" },
     },
   })
   const examOptions = attempts.map(({ id, subject, provider, title, examYear, paper }) => ({
@@ -300,7 +300,7 @@ export async function analyseMistakeImages(
       content: [
         {
           type: "text",
-          text: `Read all attached images of the student's question and working. The selected logged exam is ${JSON.stringify(selectedAttempt)}. ${examPdf ? "The attached official VCAA exam PDF is the source of truth: locate the exact question there and use it to restore anything cropped or omitted from the images." : "No official exam PDF is available, so use only the supplied images."} Fill every field for a study mistake log. questionText must stand alone and be solvable without the original paper: include the full stem plus all stimuli, diagrams, tables, definitions, subpart dependencies and other referenced context; describe non-text visuals precisely when needed. Never leave phrases such as 'using the information above' without including that information. Keep the explanation diagnostic and correction actionable, preserve mathematical notation as Markdown LaTeX, use an exact schema category, and use 'Question unclear' instead of inventing an unreadable question number. Available logged exams: ${JSON.stringify(examOptions)}.`,
+          text: `Read all attached images of the student's question or task, response, annotations, and feedback. The selected logged exam is ${JSON.stringify(selectedAttempt)}. ${examPdf ? "The attached official VCAA exam PDF is the source of truth: locate the exact item there and use it to restore anything cropped or omitted from the images." : "No official exam PDF is available, so use only the supplied images."} Fill every field for a study mistake log for this subject. questionText must stand alone without the original paper: include the full stem plus all sources, stimuli, diagrams, tables, definitions, subpart dependencies and other referenced context; describe non-text visuals precisely when needed. Never leave phrases such as 'using the information above' without including that information. Keep the explanation diagnostic and the correction actionable, preserve notation as Markdown LaTeX only where appropriate, use an exact schema category, and use 'Item unclear' instead of inventing an unreadable label. Available logged exams: ${JSON.stringify(examOptions)}.`,
         },
         ...(examPdf ? [{ type: "file" as const, data: new URL(examPdf.url), mediaType: "application/pdf", filename: examPdf.label }] : []),
         ...imageParts,

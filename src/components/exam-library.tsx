@@ -65,7 +65,7 @@ export function ExamLibrary({ references, studies, attempts, completedExamIds, g
               </div>
             </CardHeader>
             <CardContent className="flex flex-wrap gap-2">
-              {exam.year !== null ? <Button onClick={() => onStart({ subject: exam.studyName, provider: "VCAA", examYear: exam.year!, paper: getVcaaExamPaper(exam), marks: reference?.maxScore ?? 40 })}><Play />Start timed attempt</Button> : null}
+              {exam.year !== null ? <Button onClick={() => onStart({ subject: exam.studyName, provider: "VCAA", examYear: exam.year!, paper: getVcaaExamPaper(exam), marks: reference?.maxScore ?? 100 })}><Play />Start timed attempt</Button> : null}
               <Button variant="outline" render={<a href={exam.url} target="_blank" rel="noreferrer" />}><ExternalLink />Exam paper</Button>
               {report ? <Button variant="outline" render={<a href={report.url} target="_blank" rel="noreferrer" />}><ExternalLink />Examiner report</Button> : null}
               {specification ? <Button variant="ghost" render={<a href={specification.url} target="_blank" rel="noreferrer" />}><ExternalLink />Specifications</Button> : null}

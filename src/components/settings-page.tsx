@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { createChatGPTProxyProvider } from "@opencoredev/loginwithchatgpt-ai"
 import { useLoginWithChatGPT } from "@opencoredev/loginwithchatgpt-react"
-import { ArrowDown, ArrowUp, CheckCircle2, Cloud, Copy, ExternalLink, LogOut, RefreshCw, RotateCcw, Sparkles, X } from "lucide-react"
+import { ArrowDown, ArrowUp, CheckCircle2, Cloud, Copy, ExternalLink, LogOut, Plus, RefreshCw, RotateCcw, Sparkles, Trash2, X } from "lucide-react"
 import { PageHeader } from "@/components/page-header"
 import { SubjectCombobox } from "@/components/subject-combobox"
 import { Badge } from "@/components/ui/badge"
@@ -19,7 +19,7 @@ import {
 } from "@/lib/ai-settings"
 import type { useSupabaseSync } from "@/lib/sync"
 import type { useFocalAccount } from "@/hooks/use-focal-account"
-import { DEFAULT_PROVIDER_DIFFICULTY, resolveDifficultySettings, type ExamDifficultySettings } from "@/lib/exam-difficulty"
+import { DEFAULT_PROVIDER_DIFFICULTY, MATHEMATICS_PROVIDER_DIFFICULTY, resolveDifficultySettings, type ExamDifficultySettings } from "@/lib/exam-difficulty"
 
 const REASONING_LABELS: Record<ReasoningEffort, string> = {
   none: "None",
@@ -36,11 +36,12 @@ function getModelAccent(model: string) {
   if (model.endsWith("-luna")) return "var(--chart-3)"
   return "var(--chart-2)"
 }
-export function SettingsPage({ sync, focal, subjects, selectedSubjects, examDifficulty, onSubjectsChange, onExamDifficultyChange }: {
+export function SettingsPage({ sync, focal, subjects, selectedSubjects, providers, examDifficulty, onSubjectsChange, onExamDifficultyChange }: {
   sync: ReturnType<typeof useSupabaseSync>
   focal: ReturnType<typeof useFocalAccount>
   subjects: string[]
   selectedSubjects: string[]
+  providers: string[]
   examDifficulty?: ExamDifficultySettings
   onSubjectsChange: (subjects: string[]) => void
   onExamDifficultyChange: (settings: ExamDifficultySettings) => void
@@ -58,6 +59,8 @@ export function SettingsPage({ sync, focal, subjects, selectedSubjects, examDiff
   const [loadingModels, setLoadingModels] = useState(false)
   const [modelError, setModelError] = useState<string | null>(null)
   const [subjectToAdd, setSubjectToAdd] = useState("")
+  const [customSubject, setCustomSubject] = useState("")
+  const [providerToAdd, setProviderToAdd] = useState("")
   const difficulty = resolveDifficultySettings(examDifficulty)
 
   function updateDifficulty(changes: Partial<ExamDifficultySettings>) {
@@ -115,6 +118,16 @@ export function SettingsPage({ sync, focal, subjects, selectedSubjects, examDiff
             className="w-full max-w-md"
             placeholder="Search and add a subject"
           />
+          <form className="flex w-full max-w-md gap-2" onSubmit={(event) => {
+            event.preventDefault()
+            const next = customSubject.trim()
+            if (!next || selectedSubjects.some((subject) => subject.toLowerCase() === next.toLowerCase())) return
+            onSubjectsChange([...selectedSubjects, next])
+            setCustomSubject("")
+          }}>
+            <Input value={customSubject} onChange={(event) => setCustomSubject(event.target.value)} placeholder="Add a custom subject" aria-label="Custom subject name" />
+            <Button type="submit" variant="outline" disabled={!customSubject.trim()}><Plus />Add</Button>
+          </form>
           {selectedSubjects.length ? (
             <ol className="grid max-w-xl gap-2">
               {selectedSubjects.map((subject, index) => (
@@ -175,8 +188,8 @@ export function SettingsPage({ sync, focal, subjects, selectedSubjects, examDiff
 
       <Card>
         <CardHeader>
-          <CardTitle>Exam difficulty calibration</CardTitle>
-          <CardDescription>Turn mixed-company marks into a cautious VCAA-aligned signal. Hardest is first; VCAA is the zero-adjustment baseline.</CardDescription>
+          <CardTitle>Provider difficulty calibration</CardTitle>
+          <CardDescription>Order the providers you use from hardest to easiest. VCAA is the zero-adjustment baseline; tailor the list to your subjects.</CardDescription>
           <CardAction>
             <Button type="button" size="sm" variant={difficulty.enabled ? "default" : "outline"} aria-pressed={difficulty.enabled} onClick={() => updateDifficulty({ enabled: !difficulty.enabled })}>
               {difficulty.enabled ? "Enabled" : "Disabled"}
@@ -198,9 +211,24 @@ export function SettingsPage({ sync, focal, subjects, selectedSubjects, examDiff
               <FieldDescription>Adjustments are capped at ±8 points. VCAA stays unchanged.</FieldDescription>
             </Field>
             <Button type="button" variant="outline" disabled={difficulty.providerOrder.join("|") === DEFAULT_PROVIDER_DIFFICULTY.join("|")} onClick={() => updateDifficulty({ providerOrder: [...DEFAULT_PROVIDER_DIFFICULTY] })}>
-              <RotateCcw />Reset order
+              <RotateCcw />Broad preset
             </Button>
+            <Button type="button" variant="outline" disabled={difficulty.providerOrder.join("|") === MATHEMATICS_PROVIDER_DIFFICULTY.join("|")} onClick={() => updateDifficulty({ providerOrder: [...MATHEMATICS_PROVIDER_DIFFICULTY] })}>Mathematics preset</Button>
           </div>
+          <form className="flex w-full max-w-xl gap-2" onSubmit={(event) => {
+            event.preventDefault()
+            const next = providerToAdd.trim()
+            if (!next || difficulty.providerOrder.some((provider) => provider.toLowerCase() === next.toLowerCase())) return
+            const baselineIndex = difficulty.providerOrder.indexOf("VCAA")
+            const providerOrder = [...difficulty.providerOrder]
+            providerOrder.splice(baselineIndex < 0 ? providerOrder.length : baselineIndex, 0, next)
+            updateDifficulty({ providerOrder })
+            setProviderToAdd("")
+          }}>
+            <Input list="known-exam-providers" value={providerToAdd} onChange={(event) => setProviderToAdd(event.target.value)} placeholder="Add a school or exam provider" aria-label="Exam provider name" disabled={!difficulty.enabled} />
+            <datalist id="known-exam-providers">{providers.filter((provider) => !difficulty.providerOrder.some((item) => item.toLowerCase() === provider.toLowerCase())).map((provider) => <option key={provider} value={provider} />)}</datalist>
+            <Button type="submit" variant="outline" disabled={!difficulty.enabled || !providerToAdd.trim()}><Plus />Add</Button>
+          </form>
           <ol className="grid max-w-xl gap-2">
             {difficulty.providerOrder.map((provider, index) => {
               const vcaaIndex = difficulty.providerOrder.indexOf("VCAA")
@@ -220,11 +248,12 @@ export function SettingsPage({ sync, focal, subjects, selectedSubjects, examDiff
                     ;[providerOrder[index], providerOrder[index + 1]] = [providerOrder[index + 1], providerOrder[index]]
                     updateDifficulty({ providerOrder })
                   }}><ArrowDown /></Button>
+                  <Button type="button" variant="ghost" size="icon-sm" aria-label={`Remove ${provider}`} disabled={!difficulty.enabled || provider === "VCAA"} onClick={() => updateDifficulty({ providerOrder: difficulty.providerOrder.filter((item) => item !== provider) })}><Trash2 /></Button>
                 </li>
               )
             })}
           </ol>
-          <p className="max-w-2xl text-xs leading-5 text-muted-foreground">Tutor-company papers also receive less influence the further they sit from VCAA. NHT is treated as official-style but slightly harder by default. This is a planning estimate, not an official VCAA conversion.</p>
+          <p className="max-w-2xl text-xs leading-5 text-muted-foreground">The starter order is only a broad guide. Paper difficulty varies by subject and year, so remove irrelevant providers and reorder the ones you use. Non-VCAA papers receive less influence the further they sit from the baseline. This is a planning estimate, not an official conversion.</p>
         </CardContent>
       </Card>
 

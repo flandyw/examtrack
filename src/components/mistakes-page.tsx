@@ -132,7 +132,7 @@ function ReviewCard({ mistake, attempt, studies, onRate }: { mistake: Mistake; a
           <Separator />
           <section className="grid gap-5">
             <div><p className="mb-2 text-sm font-medium">What went wrong</p><MarkdownPreview>{mistake.explanation}</MarkdownPreview></div>
-            <div><p className="mb-2 text-sm font-medium">Corrected method</p><MarkdownPreview>{mistake.correction}</MarkdownPreview></div>
+            <div><p className="mb-2 text-sm font-medium">Improved response or method</p><MarkdownPreview>{mistake.correction}</MarkdownPreview></div>
             {mistake.criterion ? <div><p className="mb-2 text-sm font-medium">Assessment criterion</p><MarkdownPreview>{mistake.criterion}</MarkdownPreview></div> : null}
           </section>
         </> : null}
@@ -277,7 +277,7 @@ function BrowseCard({ mistake, attempt, studies, onEdit, onToggleSuspend, onDele
           <summary className="cursor-pointer px-3 py-2 text-sm font-medium select-none">Answer and review history</summary>
           <div className="grid gap-4 border-t p-3">
             <div><p className="mb-2 text-sm font-medium">What went wrong</p><MarkdownPreview>{mistake.explanation}</MarkdownPreview></div>
-            <div><p className="mb-2 text-sm font-medium">Corrected method</p><MarkdownPreview>{mistake.correction}</MarkdownPreview></div>
+            <div><p className="mb-2 text-sm font-medium">Improved response or method</p><MarkdownPreview>{mistake.correction}</MarkdownPreview></div>
             {mistake.reviewHistory?.length ? <div>
               <p className="mb-2 text-sm font-medium">Recent reviews</p>
               <ul className="grid gap-1 text-xs text-muted-foreground">
@@ -394,7 +394,7 @@ export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleS
         <TabsContent value="browse" className="mt-4">
           <div className="grid gap-4">
             <div className="flex flex-col gap-2 sm:flex-row">
-              <div className="relative min-w-0 flex-1"><Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" /><Input className="pl-8" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search questions, exams, subjects, or notes" aria-label="Search mistake cards" /></div>
+              <div className="relative min-w-0 flex-1"><Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" /><Input className="pl-8" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search tasks, exams, subjects, or notes" aria-label="Search mistake cards" /></div>
               <Select value={browserFilter} onValueChange={(value) => setBrowserFilter((value ?? "all") as BrowserFilter)}>
                 <SelectTrigger aria-label="Filter mistake cards by schedule"><SelectValue /></SelectTrigger>
                 <SelectContent>

@@ -37,7 +37,7 @@ function worksheetDetails(mistakes: Mistake[], attemptMap: Map<string, ExamAttem
 
   return {
     subject: subjects.length === 1 ? subjects[0] : "Mistake practice",
-    paper: papers.length === 1 ? papers[0] : "Mixed examination questions",
+    paper: papers.length === 1 ? papers[0] : "Mixed examination tasks",
     totalMarks,
   }
 }
@@ -47,7 +47,7 @@ export function buildMistakesTex(mistakes: Mistake[], attempts: ExamAttempt[]) {
   const details = worksheetDetails(mistakes, attemptMap)
   const generatedDate = new Date().toLocaleDateString("en-AU", { day: "numeric", month: "long", year: "numeric" })
   const questionCount = mistakes.length
-  const questionWord = questionCount === 1 ? "question" : "questions"
+  const questionWord = questionCount === 1 ? "task" : "tasks"
   const totalMarks = details.totalMarks === null ? "Not all marks supplied" : `${details.totalMarks} marks`
   const pages = mistakes.map((mistake, index) => {
     const attempt = attemptMap.get(mistake.attemptId)
@@ -123,7 +123,7 @@ ${questionToTex(mistake.questionText?.trim() || mistake.question)}
 \\newcommand{\\sourcequestion}[2]{%
   \\vspace{0.6em}{\\sffamily\\fontsize{8.5}{10}\\selectfont\\color{examgray}Source: #1 \\textbullet{} original #2}}
 \\newcommand{\\workingarea}{%
-  {\\sffamily\\fontsize{8}{9}\\selectfont\\bfseries WORKING SPACE}\\par\\vspace{0.35em}
+  {\\sffamily\\fontsize{8}{9}\\selectfont\\bfseries RESPONSE SPACE}\\par\\vspace{0.35em}
   \\fcolorbox{rulegray}{white}{\\begin{minipage}[t][0.48\\textheight][t]{\\dimexpr\\linewidth-2\\fboxrule\\relax}
   \\vspace{0.8em}\\hspace{0pt}
   \\end{minipage}}}
@@ -158,10 +158,10 @@ ${questionToTex(mistake.questionText?.trim() || mistake.question)}
 \\vspace{0.5em}
 \\renewcommand{\\arraystretch}{1.55}
 \\begin{tabular}{@{}>{\\bfseries}p{43mm}p{105mm}@{}}
-Questions & ${questionCount} ${questionWord}\\\\
+Tasks & ${questionCount} ${questionWord}\\\\
 Total marks & ${escapeTex(totalMarks)}\\\\
 Generated & ${escapeTex(generatedDate)}\\\\
-Source & Selected questions from your ExamTrack mistake log\\\\
+Source & Selected tasks from your ExamTrack mistake log\\\\
 \\end{tabular}
 
 \\vspace{1.6em}
@@ -169,8 +169,8 @@ Source & Selected questions from your ExamTrack mistake log\\\\
 \\vspace{0.8em}\\hspace{1em}\\begin{minipage}{\\dimexpr\\linewidth-2em\\relax}
 {\\sffamily\\fontsize{10}{12}\\selectfont\\bfseries INSTRUCTIONS}
 \\begin{itemize}[leftmargin=1.5em,itemsep=0.35em,topsep=0.6em]
-\\item Answer all questions in the spaces provided.
-\\item Show sufficient working to support each answer.
+\\item Complete all tasks in the spaces provided.
+\\item Show sufficient reasoning, evidence or working to support each response.
 \\item Use only the materials permitted for the source examination.
 \\item Record your score in the marks box after checking your work.
 \\end{itemize}

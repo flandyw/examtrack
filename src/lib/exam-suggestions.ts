@@ -32,10 +32,10 @@ function suggestionKey(suggestion: Pick<ExamSuggestion, "subject" | "provider" |
   return `${normaliseComparisonName(suggestion.subject)}\u0000${normaliseComparisonName(suggestion.provider)}\u0000${suggestion.examYear}\u0000${normaliseComparisonName(suggestion.paper)}`
 }
 
-function isCompanySuggestionLogged(suggestion: ExamSuggestion, attempts: ExamAttempt[]) {
+function isCompanySuggestionLogged(suggestion: ExamSuggestion, attempts: ExamAttempt[], providerOrder?: readonly string[]) {
   return attempts.some((attempt) =>
     attempt.examYear === suggestion.examYear &&
-    identifyDifficultyProvider(attempt) === suggestion.provider &&
+    identifyDifficultyProvider(attempt, providerOrder) === suggestion.provider &&
     normaliseComparisonName(attempt.subject) === normaliseComparisonName(suggestion.subject) &&
     normaliseComparisonName(attempt.paper) === normaliseComparisonName(suggestion.paper),
   )
@@ -92,7 +92,7 @@ export function buildExamSuggestions(
       provider: "VCAA",
       examYear: exam.year,
       paper,
-      marks: suggestionMarks(exam.studyName, paper, fallbackReference?.maxScore ?? 40),
+      marks: suggestionMarks(exam.studyName, paper, fallbackReference?.maxScore ?? 100),
     }
     const key = suggestionKey(suggestion)
     if (!unique.has(key)) unique.set(key, suggestion)
@@ -164,10 +164,10 @@ function getCompanyPaperTemplates(
   if (!templates.size) {
     const latestPaperNumber = latest ? paperOrder(latest.paper) : Number.MAX_SAFE_INTEGER
     if (Number.isFinite(latestPaperNumber) && latestPaperNumber !== Number.MAX_SAFE_INTEGER) {
-      templates.set("exam 1", { paper: "Exam 1", marks: suggestionMarks(subject, "Exam 1", latest?.rawMax ?? 40) })
-      templates.set("exam 2", { paper: "Exam 2", marks: suggestionMarks(subject, "Exam 2", latest?.rawMax ?? 40) })
+      templates.set("exam 1", { paper: "Exam 1", marks: suggestionMarks(subject, "Exam 1", latest?.rawMax ?? 100) })
+      templates.set("exam 2", { paper: "Exam 2", marks: suggestionMarks(subject, "Exam 2", latest?.rawMax ?? 100) })
     } else {
-      templates.set("exam", { paper: "Exam", marks: latest?.rawMax ?? 40 })
+      templates.set("exam", { paper: "Exam", marks: latest?.rawMax ?? 100 })
     }
   }
   return [...templates.values()].toSorted((first, second) =>
@@ -192,7 +192,8 @@ export function buildCompanyExamSuggestions(
   const examYear = latest?.examYear ?? new Date().getFullYear()
   // Settings stores difficulty hardest -> easiest; a practice progression should
   // run in the opposite direction so students build towards the hardest papers.
-  const providers = resolveDifficultySettings(settings).providerOrder.filter((provider) =>
+  const resolvedSettings = resolveDifficultySettings(settings)
+  const providers = resolvedSettings.providerOrder.filter((provider) =>
     provider !== "VCAA" && provider !== "VCAA NHT",
   ).toReversed()
   if (!providers.length) return []
@@ -200,10 +201,10 @@ export function buildCompanyExamSuggestions(
   const relevantCompanyAttempts = attempts.filter((attempt) =>
     attempt.examYear === examYear &&
     normaliseComparisonName(attempt.subject) === normaliseComparisonName(subject) &&
-    providers.includes(identifyDifficultyProvider(attempt) ?? ""),
+    providers.includes(identifyDifficultyProvider(attempt, resolvedSettings.providerOrder) ?? ""),
   )
   const latestCompany = findLatestAttempt(relevantCompanyAttempts)
-  const latestProvider = latestCompany ? identifyDifficultyProvider(latestCompany) : null
+  const latestProvider = latestCompany ? identifyDifficultyProvider(latestCompany, resolvedSettings.providerOrder) : null
   const startIndex = latestProvider ? Math.max(0, providers.indexOf(latestProvider)) : 0
   const providerSequence = [...providers.slice(startIndex), ...providers.slice(0, startIndex)]
   const papers = getCompanyPaperTemplates(subject, examYear, references, latest)
@@ -215,7 +216,7 @@ export function buildCompanyExamSuggestions(
     for (const template of papers) {
       if (isCurrentCompany && paperOrder(template.paper) <= latestPaperRank) continue
       const suggestion: ExamSuggestion = { subject, provider: company, examYear, ...template }
-      if (isCompanySuggestionLogged(suggestion, attempts)) continue
+      if (isCompanySuggestionLogged(suggestion, attempts, resolvedSettings.providerOrder)) continue
       suggestions.push(suggestion)
       if (suggestions.length >= limit) return suggestions
     }

@@ -156,9 +156,9 @@ function CoverageSummary({ data }: { data: AppData }) {
   if (!coverage.length) return null
   return (
     <section aria-labelledby="coverage-title" className="grid gap-3 rounded-lg border p-5">
-      <div><h2 id="coverage-title" className="font-semibold">Outcome coverage</h2><p className="text-sm text-muted-foreground">Weakest question-level areas first. Add Area of Study labels while marking to improve this view.</p></div>
+      <div><h2 id="coverage-title" className="font-semibold">Outcome coverage</h2><p className="text-sm text-muted-foreground">Weakest marked topics and skills first. Label sections, questions, essays, or tasks while marking to improve this view.</p></div>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {coverage.slice(0, 6).map((area) => <div key={`${area.subject}-${area.areaOfStudy}`} className="grid gap-1 rounded-md bg-muted/50 p-3"><div className="flex justify-between gap-3 text-sm"><span className="min-w-0 truncate font-medium">{area.areaOfStudy}</span><span className="tabular-nums">{area.percentage.toFixed(0)}%</span></div><p className="truncate text-xs text-muted-foreground">{area.subject} · {area.questions} question{area.questions === 1 ? "" : "s"}</p><Progress value={area.percentage} /></div>)}
+        {coverage.slice(0, 6).map((area) => <div key={`${area.subject}-${area.areaOfStudy}`} className="grid gap-1 rounded-md bg-muted/50 p-3"><div className="flex justify-between gap-3 text-sm"><span className="min-w-0 truncate font-medium">{area.areaOfStudy}</span><span className="tabular-nums">{area.percentage.toFixed(0)}%</span></div><p className="truncate text-xs text-muted-foreground">{area.subject} · {area.questions} marked item{area.questions === 1 ? "" : "s"}</p><Progress value={area.percentage} /></div>)}
       </div>
     </section>
   )
@@ -367,7 +367,7 @@ function ImprovementSignals({ data }: { data: AppData }) {
             <p className="text-sm text-muted-foreground">Highest leverage</p>
             <p className="truncate text-2xl font-semibold">{topPriority?.areaOfStudy ?? "—"}</p>
             <p className="text-xs text-muted-foreground">
-              {topPriority ? `${topPriority.priorityScore.toFixed(0)}/100 priority · ${topPriority.missedMarks} marked opportunity marks` : "Label question areas to calculate a focus score"}
+              {topPriority ? `${topPriority.priorityScore.toFixed(0)}/100 priority · ${topPriority.missedMarks} marked opportunity marks` : "Label topics or skills to calculate a focus score"}
             </p>
           </div>
         </div>

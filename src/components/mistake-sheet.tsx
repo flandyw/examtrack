@@ -15,7 +15,9 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
@@ -30,7 +32,8 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { MarkdownPreview } from "@/components/markdown-preview"
 import {
-  MISTAKE_CATEGORIES,
+  GENERAL_MISTAKE_CATEGORIES,
+  MATHEMATICS_MISTAKE_CATEGORIES,
   type ExamAttempt,
   type Mistake,
   type MistakeCategory,
@@ -122,7 +125,7 @@ export function MistakeSheet({
     event.preventDefault()
     const marksError = validateMistakeMarks(totalMarks, marksLost)
     if (!selectedAttempt || !question.trim() || !questionText.trim() || !explanation.trim() || !correction.trim()) {
-      setError("Exam, question number, question, mistake, and corrected method are required.")
+      setError("Exam, item label, prompt, mistake, and improved response are required.")
       return
     }
     if (marksError) return setError(marksError)
@@ -162,13 +165,13 @@ export function MistakeSheet({
         <SheetHeader>
           <SheetTitle>{initialMistake ? "Edit mistake" : "Log mistake"}</SheetTitle>
           <SheetDescription>
-            Use Markdown with $inline$ or $$block$$ LaTeX for mathematical working.
+            Capture any knowledge, reasoning, evidence, expression, process, or accuracy issue. Markdown and optional LaTeX are supported.
           </SheetDescription>
         </SheetHeader>
         <form id="mistake-form" className="px-4 pb-4" onSubmit={submit}>
           <FieldGroup>
             <Field>
-              <FieldLabel htmlFor="mistake-image">Question and working images</FieldLabel>
+              <FieldLabel htmlFor="mistake-image">Prompt, response, and feedback images</FieldLabel>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <Input
                   id="mistake-image"
@@ -185,7 +188,7 @@ export function MistakeSheet({
                   <Sparkles />{analysing ? "Analysing…" : "Fill with AI"}
                 </Button>
               </div>
-              <FieldDescription>Choose the exam, then upload one or more images totalling up to 3 MB. VCAA attempts also include the matching official exam PDF.</FieldDescription>
+              <FieldDescription>Choose the exam, then upload one or more images totalling up to 3 MB. Matching VCAA attempts also include the official exam PDF for context.</FieldDescription>
               {progress ? <p role="status" aria-live="polite" className="text-sm text-muted-foreground tabular-nums">{formatChatGPTProgress(progress)}</p> : null}
               <div className="rounded-lg border bg-muted/30 p-3">
                 {auth.status === "loading" ? <p className="text-sm text-muted-foreground">Checking ChatGPT connection…</p> : null}
@@ -236,8 +239,8 @@ export function MistakeSheet({
                 </Combobox>
               </Field>
               <Field>
-                <FieldLabel htmlFor="question">Question number</FieldLabel>
-                <Input id="question" value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="Question 4b" />
+                <FieldLabel htmlFor="question">Item label</FieldLabel>
+                <Input id="question" value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="Section B, Question 4 or Essay 1" />
               </Field>
             </div>
 
@@ -253,8 +256,8 @@ export function MistakeSheet({
             </div>
 
             <Field>
-              <FieldLabel htmlFor="question-text">Question</FieldLabel>
-              <Textarea id="question-text" rows={4} value={questionText} onChange={(event) => setQuestionText(event.target.value)} placeholder="Enter the full question text." />
+              <FieldLabel htmlFor="question-text">Prompt or task</FieldLabel>
+              <Textarea id="question-text" rows={4} value={questionText} onChange={(event) => setQuestionText(event.target.value)} placeholder="Enter the full question, essay prompt, stimulus task, or practical requirement." />
               <MarkdownPreview>{questionText}</MarkdownPreview>
             </Field>
 
@@ -263,15 +266,22 @@ export function MistakeSheet({
               <Select value={category} onValueChange={(value) => setCategory(value as MistakeCategory)}>
                 <SelectTrigger className="w-full"><SelectValue>{category}</SelectValue></SelectTrigger>
                 <SelectContent>
-                  {MISTAKE_CATEGORIES.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}
+                  <SelectGroup>
+                    <SelectLabel>All subjects</SelectLabel>
+                    {GENERAL_MISTAKE_CATEGORIES.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}
+                  </SelectGroup>
+                  <SelectGroup>
+                    <SelectLabel>Mathematics-specific</SelectLabel>
+                    {MATHEMATICS_MISTAKE_CATEGORIES.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}
+                  </SelectGroup>
                 </SelectContent>
               </Select>
             </Field>
 
             <div className="grid gap-5 sm:grid-cols-2">
               <Field>
-                <FieldLabel htmlFor="mistake-area">Area of Study / key knowledge <span className="text-muted-foreground">(optional)</span></FieldLabel>
-                <Input id="mistake-area" value={areaOfStudy} onChange={(event) => setAreaOfStudy(event.target.value)} placeholder="Differentiation" />
+                <FieldLabel htmlFor="mistake-area">Topic, skill, or Area of Study <span className="text-muted-foreground">(optional)</span></FieldLabel>
+                <Input id="mistake-area" value={areaOfStudy} onChange={(event) => setAreaOfStudy(event.target.value)} placeholder="e.g. Cellular respiration, argument analysis, or a key process" />
               </Field>
               <Field>
                 <FieldLabel htmlFor="mistake-criterion">Assessment criterion <span className="text-muted-foreground">(optional)</span></FieldLabel>
@@ -281,14 +291,14 @@ export function MistakeSheet({
 
             <Field>
               <FieldLabel htmlFor="explanation">What went wrong?</FieldLabel>
-              <Textarea id="explanation" rows={5} value={explanation} onChange={(event) => setExplanation(event.target.value)} placeholder="I differentiated $e^{2x}$ as $e^{2x}$ and missed the chain rule." />
+              <Textarea id="explanation" rows={5} value={explanation} onChange={(event) => setExplanation(event.target.value)} placeholder="Describe the gap: what was misunderstood, omitted, unsupported, unclear, or done inaccurately?" />
               <FieldDescription>Describe the error precisely enough to recognise it next time.</FieldDescription>
               <MarkdownPreview>{explanation}</MarkdownPreview>
             </Field>
 
             <Field>
-              <FieldLabel htmlFor="correction">Corrected method</FieldLabel>
-              <Textarea id="correction" rows={5} value={correction} onChange={(event) => setCorrection(event.target.value)} placeholder="Use $\frac{d}{dx}e^{u}=u'e^u$, so the derivative is $2e^{2x}$." />
+              <FieldLabel htmlFor="correction">Improved response or method</FieldLabel>
+              <Textarea id="correction" rows={5} value={correction} onChange={(event) => setCorrection(event.target.value)} placeholder="Write the correct idea, evidence, structure, process, or answer you should use next time." />
               <MarkdownPreview>{correction}</MarkdownPreview>
             </Field>
             <FieldError>{error}</FieldError>

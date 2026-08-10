@@ -3,14 +3,29 @@ import { isSacRecord, migrateSacRecords, type SacRecord } from "@/lib/sac"
 import { isPerformanceContext, type PerformanceContext } from "@/lib/performance-context"
 import { isExamTimerSession, isSacTimerSession, type ExamTimerSession, type SacTimerSession } from "@/lib/ongoing-timers"
 
-export const MISTAKE_CATEGORIES = [
+export const GENERAL_MISTAKE_CATEGORIES = [
   "Concept",
-  "Algebra",
-  "Arithmetic",
-  "Calculator",
+  "Knowledge recall",
+  "Reasoning",
+  "Evidence and analysis",
+  "Written expression",
+  "Process or technique",
+  "Accuracy",
   "Interpretation",
   "Time management",
   "Other",
+] as const
+
+// Retained for existing logs and subjects where these labels are useful.
+export const MATHEMATICS_MISTAKE_CATEGORIES = [
+  "Algebra",
+  "Arithmetic",
+  "Calculator",
+] as const
+
+export const MISTAKE_CATEGORIES = [
+  ...GENERAL_MISTAKE_CATEGORIES,
+  ...MATHEMATICS_MISTAKE_CATEGORIES,
 ] as const
 
 export type MistakeCategory = (typeof MISTAKE_CATEGORIES)[number]

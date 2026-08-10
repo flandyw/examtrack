@@ -98,7 +98,7 @@ export function SacSheet({ open, subjects, preferredSubjects, initialRecord, onO
             <div className="grid gap-5 sm:grid-cols-[1fr_10rem]">
               <Field>
                 <FieldLabel htmlFor="sac-title">SAC title</FieldLabel>
-                <Input id="sac-title" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Differentiation and integration" required />
+                <Input id="sac-title" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Unit 3 outcome assessment" required />
               </Field>
               <Field>
                 <FieldLabel htmlFor="sac-number">SAC number <span className="text-muted-foreground">(optional)</span></FieldLabel>

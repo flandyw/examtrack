@@ -27,8 +27,9 @@ test("summarises the worksheet marks on the cover", () => {
 
   const tex = buildMistakesTex(mistakes, [attempt])
 
-  expect(tex).toContain("Questions & 2 questions")
+  expect(tex).toContain("Tasks & 2 tasks")
   expect(tex).toContain("Total marks & 6 marks")
+  expect(tex).toContain("Show sufficient reasoning, evidence or working")
   expect(tex).toContain("MATHEMATICAL METHODS")
   expect(tex).toContain("Examination 1")
 })

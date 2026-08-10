@@ -72,7 +72,7 @@ export function ExamSheet({ open, references, attempts, studies, preferredSubjec
   const [paper, setPaper] = useState(initialAttempt?.paper ?? "")
   const [completedAt, setCompletedAt] = useState(initialAttempt?.completedAt ?? today)
   const [rawScore, setRawScore] = useState(initialAttempt?.rawScore ?? 0)
-  const [rawMax, setRawMax] = useState(initialAttempt?.rawMax ?? 40)
+  const [rawMax, setRawMax] = useState(initialAttempt?.rawMax ?? 100)
   const [comment, setComment] = useState(initialAttempt?.comment ?? "")
   const [performanceContext, setPerformanceContext] = useState<PerformanceContext>(initialAttempt?.performanceContext ?? {})
   const [questionResults, setQuestionResults] = useState<QuestionResult[]>(initialAttempt?.questionResults ?? [])
@@ -115,7 +115,7 @@ export function ExamSheet({ open, references, attempts, studies, preferredSubjec
     setPaper("")
     setCompletedAt(today)
     setRawScore(0)
-    setRawMax(40)
+    setRawMax(100)
     setComment("")
     setPerformanceContext({})
     setQuestionResults([])
@@ -189,7 +189,7 @@ export function ExamSheet({ open, references, attempts, studies, preferredSubjec
             <div className="grid gap-5 sm:grid-cols-2">
               <Field>
                 <FieldLabel htmlFor="subject">Subject</FieldLabel>
-                <SubjectCombobox subjects={subjects} preferredSubjects={preferredSubjects} value={subject} onValueChange={setSubject} id="subject" allowCustom placeholder="Search VCAA subjects" />
+                <SubjectCombobox subjects={subjects} preferredSubjects={preferredSubjects} value={subject} onValueChange={setSubject} id="subject" allowCustom placeholder="Search or enter a subject" />
               </Field>
               <Field>
                 <FieldLabel htmlFor="provider">Provider</FieldLabel>
@@ -204,7 +204,7 @@ export function ExamSheet({ open, references, attempts, studies, preferredSubjec
               </Field>
               <Field>
                 <FieldLabel htmlFor="paper">Paper</FieldLabel>
-                <Input id="paper" list="exam-paper-options" value={paper} onChange={(event) => setPaper(event.target.value)} placeholder="Exam 1" />
+                <Input id="paper" list="exam-paper-options" value={paper} onChange={(event) => setPaper(event.target.value)} placeholder="Exam, paper, or assessment name" />
                 <datalist id="exam-paper-options">{paperOptions.map((item) => <option key={item} value={item} />)}</datalist>
               </Field>
             </div>
