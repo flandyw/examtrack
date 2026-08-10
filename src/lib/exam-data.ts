@@ -132,6 +132,20 @@ export type MistakeInsights = {
   questionsGeneratedAt?: string
 }
 
+export type AlternativeMistakeCard = {
+  sourceMistakeId: string
+  skill: string
+  question: string
+  answer: string
+  marks: number
+  generatedAt: string
+}
+
+export type AlternativeMistakeDeck = {
+  cards: AlternativeMistakeCard[]
+  updatedAt: string
+}
+
 export type AppData = {
   schemaVersion: 4
   attempts: ExamAttempt[]
@@ -149,6 +163,7 @@ export type AppData = {
   activeSacTimer?: SacTimerSession
   activeSacTimerUpdatedAt: string
   mistakeInsights?: MistakeInsights
+  alternativeMistakeDeck?: AlternativeMistakeDeck
   examDifficulty?: ExamDifficultySettings
 }
 
@@ -814,6 +829,7 @@ export function isAppData(value: unknown): value is AppData {
     (data.activeSacTimer === undefined || isSacTimerSession(data.activeSacTimer)) &&
     typeof data.activeSacTimerUpdatedAt === "string" &&
     (data.mistakeInsights === undefined || isMistakeInsights(data.mistakeInsights)) &&
+    (data.alternativeMistakeDeck === undefined || isAlternativeMistakeDeck(data.alternativeMistakeDeck)) &&
     (data.examDifficulty === undefined || isExamDifficultySettings(data.examDifficulty))
   )
 }
@@ -827,6 +843,18 @@ function isMistakeInsights(value: unknown): value is MistakeInsights {
     (value.practiceQuestions === undefined || typeof value.practiceQuestions === "string") &&
     typeof value.generatedAt === "string" &&
     (value.questionsGeneratedAt === undefined || typeof value.questionsGeneratedAt === "string")
+}
+
+function isAlternativeMistakeDeck(value: unknown): value is AlternativeMistakeDeck {
+  if (!isRecord(value)) return false
+  return Array.isArray(value.cards) && value.cards.every((card) => isRecord(card) &&
+    typeof card.sourceMistakeId === "string" &&
+    typeof card.skill === "string" &&
+    typeof card.question === "string" &&
+    typeof card.answer === "string" &&
+    typeof card.marks === "number" && Number.isInteger(card.marks) && card.marks > 0 &&
+    typeof card.generatedAt === "string") &&
+    typeof value.updatedAt === "string"
 }
 
 function isQuestionResult(value: unknown): value is QuestionResult {

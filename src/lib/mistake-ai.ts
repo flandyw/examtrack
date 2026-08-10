@@ -1,6 +1,6 @@
 import { createChatGPTProxyProvider } from "@opencoredev/loginwithchatgpt-ai"
 import { jsonSchema, Output, streamText } from "ai"
-import { MISTAKE_CATEGORIES, type ExamAttempt, type Mistake, type MistakeCategory, type MistakeInsights } from "@/lib/exam-data"
+import { MISTAKE_CATEGORIES, type AlternativeMistakeCard, type ExamAttempt, type Mistake, type MistakeCategory, type MistakeInsights } from "@/lib/exam-data"
 import { loadAISettings } from "@/lib/ai-settings"
 import { findVcaaExamForAttempt, type VcaaStudyResources } from "@/lib/vcaa-resources"
 
@@ -105,6 +105,7 @@ async function getChatGPTModel() {
 function mistakeContext(mistakes: Mistake[], attempts: ExamAttempt[]) {
   const attemptMap = new Map(attempts.map((attempt) => [attempt.id, attempt]))
   return mistakes.map((mistake) => ({
+    id: mistake.id,
     subject: attemptMap.get(mistake.attemptId)?.subject,
     exam: attemptMap.get(mistake.attemptId)?.title,
     question: mistake.question,
@@ -123,6 +124,65 @@ function mistakeContext(mistakes: Mistake[], attempts: ExamAttempt[]) {
     lapses: mistake.lapses,
     suspended: mistake.suspended,
     reviews: mistake.reviewHistory?.map(({ result }) => result),
+  }))
+}
+
+type GeneratedAlternativeMistakeCard = Omit<AlternativeMistakeCard, "generatedAt">
+
+export async function generateAlternativeMistakeQuestions(mistakes: Mistake[], attempts: ExamAttempt[], onProgress?: (progress: ChatGPTProgress) => void): Promise<GeneratedAlternativeMistakeCard[]> {
+  if (!mistakes.length) throw new Error("Log at least one mistake before generating an alternative deck.")
+  onProgress?.({ phase: "connecting", tokens: 0, estimated: true, reasoning: false })
+  const { chatgpt, model, settings } = await getChatGPTModel()
+  const batches = Array.from({ length: Math.ceil(mistakes.length / 8) }, (_, index) => mistakes.slice(index * 8, index * 8 + 8))
+  const generatedCards: GeneratedAlternativeMistakeCard[] = []
+
+  for (const batch of batches) {
+    const sourceIds = batch.map((mistake) => mistake.id)
+    const schema = jsonSchema<{ cards: GeneratedAlternativeMistakeCard[] }>({
+      type: "object",
+      additionalProperties: false,
+      required: ["cards"],
+      properties: {
+        cards: {
+          type: "array",
+          minItems: batch.length,
+          maxItems: batch.length,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["sourceMistakeId", "skill", "question", "answer", "marks"],
+            properties: {
+              sourceMistakeId: { type: "string", enum: sourceIds },
+              skill: { type: "string", description: "A short label for the knowledge or process skill being tested" },
+              question: { type: "string", description: "A fully self-contained original question in Markdown, using LaTeX where useful" },
+              answer: { type: "string", description: "A concise worked answer in Markdown, using LaTeX where useful" },
+              marks: { type: "integer", minimum: 1, maximum: 20 },
+            },
+          },
+        },
+      },
+    })
+    const result = streamText({
+      model: chatgpt(model),
+      output: Output.object({ schema, name: "alternative_mistake_deck" }),
+      maxOutputTokens: Math.max(1400, batch.length * 500),
+      headers: { "x-login-with-chatgpt-reasoning-effort": settings.reasoningEffort },
+      onChunk: createChatGPTProgressHandler(onProgress),
+      prompt: `Create exactly one original alternative question for every mistake record. Each question must test the same underlying knowledge or process as its source, while changing the values, wording, scenario, or required reasoning enough that it cannot be answered by memorising the source. Keep the difficulty and curriculum level comparable. Make every question self-contained, assign a realistic mark value, and provide a correct worked answer based on the corrected method. Do not copy source wording or reproduce proprietary exam material. Return every source id exactly once. Records: ${JSON.stringify(mistakeContext(batch, attempts))}`,
+    })
+    const cards = (await result.output).cards
+    const returnedIds = new Set(cards.map((card) => card.sourceMistakeId))
+    if (cards.length !== sourceIds.length || returnedIds.size !== sourceIds.length || sourceIds.some((id) => !returnedIds.has(id))) {
+      throw new Error("ChatGPT did not create one alternative for every mistake. Try generating the deck again.")
+    }
+    generatedCards.push(...cards)
+  }
+
+  return generatedCards.map((card) => ({
+    ...card,
+    skill: card.skill.trim(),
+    question: card.question.trim(),
+    answer: card.answer.trim(),
   }))
 }
 

@@ -3,6 +3,7 @@ import { BookOpenCheck, FileDown, NotebookPen, Plus, Search, Shuffle, SkipForwar
 import { toast } from "sonner"
 
 import { MarkdownPreview } from "@/components/markdown-preview"
+import { MistakeAlternativeDeck } from "@/components/mistake-alternative-deck"
 import { MistakeInsights } from "@/components/mistake-insights"
 import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
@@ -39,6 +40,7 @@ type MistakesPageProps = {
   onToggleSuspend: (mistake: Mistake) => void
   onDelete: (mistake: Mistake) => void
   onSaveInsights: (insights: NonNullable<AppData["mistakeInsights"]>) => void
+  onSaveAlternativeDeck: (deck: NonNullable<AppData["alternativeMistakeDeck"]>) => void
 }
 
 const RATING_OPTIONS: { rating: ReviewRating; label: string; shortcut: string; variant: "destructive" | "outline" | "secondary" | "default" }[] = [
@@ -294,9 +296,9 @@ function BrowseCard({ mistake, attempt, studies, onEdit, onToggleSuspend, onDele
   )
 }
 
-export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleSuspend, onDelete, onSaveInsights }: MistakesPageProps) {
+export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleSuspend, onDelete, onSaveInsights, onSaveAlternativeDeck }: MistakesPageProps) {
   const [subject, setSubject] = useState("all")
-  const [tab, setTab] = useState<"study" | "browse">("study")
+  const [tab, setTab] = useState<"study" | "alternative" | "browse">("study")
   const [search, setSearch] = useState("")
   const [browserFilter, setBrowserFilter] = useState<BrowserFilter>("all")
   const [exporting, setExporting] = useState(false)
@@ -309,6 +311,7 @@ export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleS
   const progress = getMistakeProgress(visibleMistakes)
   const topPriority = buildRevisionPriorities(visibleMistakes).find((item) => item.unresolved > 0)
   const worksheetMistakes = buildRevisionQueue(visibleMistakes)
+  const alternativeCount = data.alternativeMistakeDeck?.cards.filter((card) => visibleMistakes.some((mistake) => mistake.id === card.sourceMistakeId)).length ?? 0
   const normalizedSearch = search.trim().toLocaleLowerCase()
   const browsedMistakes = visibleMistakes.filter((mistake) => {
     const schedule = getMistakeSchedule(mistake)
@@ -380,12 +383,14 @@ export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleS
           </div>
         </CardContent>
       </Card> : null}
-      <Tabs value={tab} onValueChange={(value) => setTab(value as "study" | "browse")}>
+      <Tabs value={tab} onValueChange={(value) => setTab(value as "study" | "alternative" | "browse")}>
         <TabsList>
           <TabsTrigger value="study">Study ({counts.due})</TabsTrigger>
+          <TabsTrigger value="alternative">Alternatives ({alternativeCount})</TabsTrigger>
           <TabsTrigger value="browse">Browse ({visibleMistakes.length})</TabsTrigger>
         </TabsList>
         <TabsContent value="study" className="mt-4"><StudyQueue key={activeSubject} mistakes={visibleMistakes} attempts={data.attempts} studies={studies} onReview={onReview} onBrowse={() => setTab("browse")} /></TabsContent>
+        <TabsContent value="alternative" className="mt-4"><MistakeAlternativeDeck key={activeSubject} mistakes={visibleMistakes} allMistakes={data.mistakes} attempts={data.attempts} deck={data.alternativeMistakeDeck} onSave={onSaveAlternativeDeck} /></TabsContent>
         <TabsContent value="browse" className="mt-4">
           <div className="grid gap-4">
             <div className="flex flex-col gap-2 sm:flex-row">

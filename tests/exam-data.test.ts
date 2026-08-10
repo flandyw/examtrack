@@ -243,6 +243,12 @@ describe("exam analysis", () => {
     expect(isAppData({ ...data, mistakes: [{ ...mistake, reviewState: "review", intervalDays: 8, easeFactor: 2.5, repetitions: 2, lapses: 1, lastReviewedAt: attempt.updatedAt, suspended: false }] })).toBe(true)
     expect(isAppData({ ...data, mistakes: [{ ...mistake, questionText: 42 }] })).toBe(false)
     expect(isAppData({ ...data, mistakes: [{ ...mistake, reviewState: "forgotten" }] })).toBe(false)
+    const alternativeMistakeDeck = {
+      cards: [{ sourceMistakeId: mistake.id, skill: "Chain rule", question: "Differentiate $e^{3x}$.", answer: "$3e^{3x}$", marks: 2, generatedAt: attempt.updatedAt }],
+      updatedAt: attempt.updatedAt,
+    }
+    expect(isAppData({ ...data, alternativeMistakeDeck })).toBe(true)
+    expect(isAppData({ ...data, alternativeMistakeDeck: { ...alternativeMistakeDeck, cards: [{ ...alternativeMistakeDeck.cards[0], marks: 0 }] } })).toBe(false)
   })
 
   test("builds outcome coverage and schedules Anki-style mistake reviews", () => {

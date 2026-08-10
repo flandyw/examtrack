@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { mergeCollection, mergeMistakeInsights, mergeSacState, mergeTrackedState } from "../src/lib/sync"
+import { mergeAlternativeMistakeDeck, mergeCollection, mergeMistakeInsights, mergeSacState, mergeTrackedState } from "../src/lib/sync"
 import { mergeTimerSession } from "../src/lib/ongoing-timers"
 
 type Item = { id: string; updatedAt: string; value: string }
@@ -79,5 +79,12 @@ describe("sync merge", () => {
     expect(mergeMistakeInsights(newer, older)).toEqual(newer)
     const withQuestions = { ...older, practiceQuestions: "Questions", questionsGeneratedAt: "2026-07-15T03:00:00.000Z" }
     expect(mergeMistakeInsights(newer, withQuestions)).toEqual(withQuestions)
+  })
+
+  test("keeps the newest alternative mistake deck", () => {
+    const older = { cards: [], updatedAt: "2026-07-15T01:00:00.000Z" }
+    const newer = { cards: [], updatedAt: "2026-07-15T02:00:00.000Z" }
+    expect(mergeAlternativeMistakeDeck(older, newer)).toEqual(newer)
+    expect(mergeAlternativeMistakeDeck(newer, older)).toEqual(newer)
   })
 })
