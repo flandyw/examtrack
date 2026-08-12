@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react"
 import { useLoginWithChatGPT } from "@opencoredev/loginwithchatgpt-react"
-import { CheckCircle2, Copy, ExternalLink, LogOut, Sparkles } from "lucide-react"
+import { CheckCircle2, Copy, ExternalLink, Images, LogOut, Sparkles } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
@@ -39,7 +39,7 @@ import {
   type MistakeCategory,
   validateMistakeMarks,
 } from "@/lib/exam-data"
-import { analyseMistakeImages, formatChatGPTProgress, validateMistakeImages, type ChatGPTProgress } from "@/lib/mistake-ai"
+import { analyseMistakeImageBatch, analyseMistakeImages, formatChatGPTProgress, validateMistakeBatchImages, validateMistakeImages, type ChatGPTProgress, type MistakeDraft } from "@/lib/mistake-ai"
 import type { VcaaStudyResources } from "@/lib/vcaa-resources"
 
 type MistakeSheetProps = {
@@ -73,6 +73,9 @@ export function MistakeSheet({
   const [totalMarks, setTotalMarks] = useState(initialMistake?.totalMarks ?? 0)
   const [marksLost, setMarksLost] = useState(initialMistake?.marksLost ?? 0)
   const [images, setImages] = useState<File[]>([])
+  const [importMode, setImportMode] = useState<"single" | "batch">("single")
+  const [batchDrafts, setBatchDrafts] = useState<MistakeDraft[]>([])
+  const [activeBatchIndex, setActiveBatchIndex] = useState(0)
   const [analysing, setAnalysing] = useState(false)
   const [progress, setProgress] = useState<ChatGPTProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -96,24 +99,42 @@ export function MistakeSheet({
     setTotalMarks(0)
     setMarksLost(0)
     setImages([])
+    setImportMode("single")
+    setBatchDrafts([])
+    setActiveBatchIndex(0)
     setProgress(null)
     setError(null)
   }
 
+  function applyDraft(draft: MistakeDraft) {
+    if (draft.attemptId) setAttemptId(draft.attemptId)
+    setQuestion(draft.question)
+    setQuestionText(draft.questionText)
+    setCategory(draft.category)
+    setExplanation(draft.explanation)
+    setCorrection(draft.correction)
+    setAreaOfStudy(draft.areaOfStudy)
+    setCriterion(draft.criterion)
+    setTotalMarks(draft.totalMarks)
+    setMarksLost(draft.marksLost)
+  }
+
   async function analyse() {
-    const validationError = validateMistakeImages(images)
+    const validationError = importMode === "batch" ? validateMistakeBatchImages(images) : validateMistakeImages(images)
     if (validationError) return setError(validationError)
 
     setAnalysing(true)
     setError(null)
     try {
-      const draft = await analyseMistakeImages(images, attempts, selectedAttempt, studies, setProgress)
-      if (draft.attemptId) setAttemptId(draft.attemptId)
-      setQuestion(draft.question)
-      setQuestionText(draft.questionText)
-      setCategory(draft.category)
-      setExplanation(draft.explanation)
-      setCorrection(draft.correction)
+      if (importMode === "batch") {
+        const drafts = await analyseMistakeImageBatch(images, attempts, selectedAttempt, studies, setProgress)
+        setBatchDrafts(drafts)
+        setActiveBatchIndex(0)
+        applyDraft(drafts[0])
+      } else {
+        setBatchDrafts([])
+        applyDraft(await analyseMistakeImages(images, attempts, selectedAttempt, studies, setProgress))
+      }
     } catch (error) {
       setError(error instanceof Error ? error.message : "Could not analyse this image.")
     } finally {
@@ -130,7 +151,7 @@ export function MistakeSheet({
     }
     if (marksError) return setError(marksError)
     const timestamp = new Date().toISOString()
-    onSave({
+    const mistake: Mistake = {
       id: initialMistake?.id ?? crypto.randomUUID(),
       attemptId: selectedAttempt,
       question: question.trim(),
@@ -154,7 +175,16 @@ export function MistakeSheet({
       resolved: initialMistake?.resolved ?? false,
       createdAt: initialMistake?.createdAt ?? timestamp,
       updatedAt: timestamp,
-    })
+    }
+    onSave(mistake)
+    const nextBatchIndex = activeBatchIndex + 1
+    if (!initialMistake && batchDrafts.length > nextBatchIndex) {
+      setActiveBatchIndex(nextBatchIndex)
+      applyDraft(batchDrafts[nextBatchIndex])
+      setProgress(null)
+      setError(null)
+      return
+    }
     reset()
     onOpenChange(false)
   }
@@ -172,23 +202,37 @@ export function MistakeSheet({
           <FieldGroup>
             <Field>
               <FieldLabel htmlFor="mistake-image">Prompt, response, and feedback images</FieldLabel>
+              {!initialMistake ? (
+                <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted p-1">
+                  <Button type="button" size="sm" variant={importMode === "single" ? "secondary" : "ghost"} disabled={analysing || batchDrafts.length > 0} onClick={() => { setImportMode("single"); setBatchDrafts([]); setActiveBatchIndex(0); setProgress(null); setError(null) }}>
+                    <Sparkles />One mistake
+                  </Button>
+                  <Button type="button" size="sm" variant={importMode === "batch" ? "secondary" : "ghost"} disabled={analysing || batchDrafts.length > 0} onClick={() => { setImportMode("batch"); setBatchDrafts([]); setActiveBatchIndex(0); setProgress(null); setError(null) }}>
+                    <Images />Separate questions
+                  </Button>
+                </div>
+              ) : null}
               <div className="flex flex-col gap-2 sm:flex-row">
                 <Input
                   id="mistake-image"
                   type="file"
                   accept="image/*"
                   multiple
+                  disabled={analysing || batchDrafts.length > 0}
                   onChange={(event) => {
                     setImages(Array.from(event.target.files ?? []))
+                    setBatchDrafts([])
+                    setActiveBatchIndex(0)
                     setProgress(null)
                     setError(null)
                   }}
                 />
-                <Button type="button" variant="secondary" disabled={!images.length || !selectedAttempt || analysing || !auth.isAuthenticated} onClick={() => void analyse()}>
-                  <Sparkles />{analysing ? "Analysing…" : "Fill with AI"}
+                <Button type="button" variant="secondary" disabled={!images.length || !selectedAttempt || analysing || batchDrafts.length > 0 || !auth.isAuthenticated} onClick={() => void analyse()}>
+                  <Sparkles />{analysing ? "Analysing…" : importMode === "batch" ? `Import ${images.length || ""} questions` : "Fill with AI"}
                 </Button>
               </div>
-              <FieldDescription>Choose the exam, then upload one or more images totalling up to 3 MB. Matching VCAA attempts also include the official exam PDF for context.</FieldDescription>
+              <FieldDescription>{importMode === "batch" ? "Choose the shared exam, then add 2–10 images. Each image becomes a separate mistake in the same order; each can be up to 3 MB and the batch up to 15 MB." : "Choose the exam, then upload one or more related images totalling up to 3 MB. Matching VCAA attempts also include the official exam PDF for context."}</FieldDescription>
+              {batchDrafts.length ? <p role="status" className="text-sm font-medium">Reviewing question {activeBatchIndex + 1} of {batchDrafts.length}. Saving will advance to the next one.</p> : null}
               {progress ? <p role="status" aria-live="polite" className="text-sm text-muted-foreground tabular-nums">{formatChatGPTProgress(progress)}</p> : null}
               <div className="rounded-lg border bg-muted/30 p-3">
                 {auth.status === "loading" ? <p className="text-sm text-muted-foreground">Checking ChatGPT connection…</p> : null}
@@ -305,7 +349,7 @@ export function MistakeSheet({
           </FieldGroup>
         </form>
         <SheetFooter>
-          <Button type="submit" form="mistake-form" disabled={attempts.length === 0}>{initialMistake ? "Save changes" : "Save mistake"}</Button>
+          <Button type="submit" form="mistake-form" disabled={attempts.length === 0 || analysing}>{initialMistake ? "Save changes" : batchDrafts.length > activeBatchIndex + 1 ? "Save & review next" : batchDrafts.length ? "Save final mistake" : "Save mistake"}</Button>
         </SheetFooter>
       </SheetContent>
     </Sheet>

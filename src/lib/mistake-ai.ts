@@ -5,6 +5,8 @@ import { loadAISettings } from "@/lib/ai-settings"
 import { findVcaaExamForAttempt, type VcaaStudyResources } from "@/lib/vcaa-resources"
 
 const MAX_IMAGE_BYTES = 3 * 1024 * 1024
+const MAX_BATCH_IMAGE_BYTES = 15 * 1024 * 1024
+const MAX_BATCH_IMAGES = 10
 
 export type MistakeDraft = {
   attemptId: string
@@ -13,7 +15,13 @@ export type MistakeDraft = {
   category: MistakeCategory
   explanation: string
   correction: string
+  areaOfStudy: string
+  criterion: string
+  totalMarks: number
+  marksLost: number
 }
+
+type IndexedMistakeDraft = MistakeDraft & { imageIndex: number }
 
 export type ChatGPTProgress = {
   phase: "connecting" | "thinking" | "writing" | "complete"
@@ -77,6 +85,18 @@ export function validateMistakeImages(files: Pick<File, "size" | "type">[]): str
     if (error) return error
   }
   if (files.reduce((total, file) => total + file.size, 0) > MAX_IMAGE_BYTES) return "Choose images totalling less than 3 MB."
+  return null
+}
+
+export function validateMistakeBatchImages(files: Pick<File, "size" | "type">[]): string | null {
+  if (!files.length) return "Choose at least one image."
+  if (files.length < 2) return "Choose at least two images for a batch import."
+  if (files.length > MAX_BATCH_IMAGES) return `Choose no more than ${MAX_BATCH_IMAGES} images at once.`
+  for (const file of files) {
+    const error = validateMistakeImage(file)
+    if (error) return error
+  }
+  if (files.reduce((total, file) => total + file.size, 0) > MAX_BATCH_IMAGE_BYTES) return "Choose images totalling less than 15 MB."
   return null
 }
 
@@ -267,18 +287,24 @@ export async function analyseMistakeImages(
   onProgress?.({ phase: "connecting", tokens: 0, estimated: true, reasoning: false })
   const { chatgpt, model, settings } = await getChatGPTModel()
 
+  const mistakeProperties = {
+    attemptId: { type: "string", enum: ["", ...attempts.map((attempt) => attempt.id)] },
+    question: { type: "string", description: "Short item identifier, such as Section B Question 4, Essay 1, or Task 2" },
+    questionText: { type: "string", description: "A fully self-contained version of the complete question or task, including every stem, source, stimulus, diagram, table, definition and referenced context needed to answer it, in Markdown with LaTeX only where useful" },
+    category: { type: "string", enum: [...MISTAKE_CATEGORIES] },
+    explanation: { type: "string", description: "What the student did wrong, in concise Markdown with LaTeX where useful" },
+    correction: { type: "string", description: "The improved response, evidence, structure, reasoning, or method, in concise Markdown with LaTeX only where useful" },
+    areaOfStudy: { type: "string", description: "A concise topic, skill, or Area of Study, or an empty string if it cannot be determined" },
+    criterion: { type: "string", description: "A concise assessment criterion, or an empty string if it cannot be determined" },
+    totalMarks: { type: "number", exclusiveMinimum: 0, description: "Total marks available for the item; infer from the paper or image" },
+    marksLost: { type: "number", minimum: 0, description: "Marks the student lost; infer from annotations or the recorded score and never exceed totalMarks" },
+  } as const
+  const mistakeRequired = ["attemptId", "question", "questionText", "category", "explanation", "correction", "areaOfStudy", "criterion", "totalMarks", "marksLost"]
   const mistakeSchema = jsonSchema<MistakeDraft>({
     type: "object",
     additionalProperties: false,
-    required: ["attemptId", "question", "questionText", "category", "explanation", "correction"],
-    properties: {
-      attemptId: { type: "string", enum: ["", ...attempts.map((attempt) => attempt.id)] },
-      question: { type: "string", description: "Short item identifier, such as Section B Question 4, Essay 1, or Task 2" },
-      questionText: { type: "string", description: "A fully self-contained version of the complete question or task, including every stem, source, stimulus, diagram, table, definition and referenced context needed to answer it, in Markdown with LaTeX only where useful" },
-      category: { type: "string", enum: [...MISTAKE_CATEGORIES] },
-      explanation: { type: "string", description: "What the student did wrong, in concise Markdown with LaTeX where useful" },
-      correction: { type: "string", description: "The improved response, evidence, structure, reasoning, or method, in concise Markdown with LaTeX only where useful" },
-    },
+    required: mistakeRequired,
+    properties: mistakeProperties,
   })
   const examOptions = attempts.map(({ id, subject, provider, title, examYear, paper }) => ({
     id, subject, provider, title, examYear, paper,
@@ -318,5 +344,108 @@ export async function analyseMistakeImages(
     questionText: draft.questionText.trim(),
     explanation: draft.explanation.trim(),
     correction: draft.correction.trim(),
+    areaOfStudy: draft.areaOfStudy.trim(),
+    criterion: draft.criterion.trim(),
   }
+}
+
+export function orderMistakeBatchDrafts(drafts: IndexedMistakeDraft[], imageCount: number): MistakeDraft[] {
+  const byIndex = new Map(drafts.map((draft) => [draft.imageIndex, draft]))
+  if (drafts.length !== imageCount || byIndex.size !== imageCount || Array.from({ length: imageCount }, (_, index) => index).some((index) => !byIndex.has(index))) {
+    throw new Error("ChatGPT did not create one mistake for every image. Try the batch import again.")
+  }
+  return Array.from({ length: imageCount }, (_, imageIndex) => {
+    const draft = byIndex.get(imageIndex)!
+    if (!draft.question.trim() || !draft.questionText.trim() || !draft.explanation.trim() || !draft.correction.trim()) {
+      throw new Error(`ChatGPT could not read enough of image ${imageIndex + 1} to fill its mistake.`)
+    }
+    if (draft.totalMarks <= 0 || draft.marksLost < 0 || draft.marksLost > draft.totalMarks) {
+      throw new Error(`ChatGPT returned invalid marks for image ${imageIndex + 1}. Try the batch import again.`)
+    }
+    return {
+      ...draft,
+      question: draft.question.trim(),
+      questionText: draft.questionText.trim(),
+      explanation: draft.explanation.trim(),
+      correction: draft.correction.trim(),
+      areaOfStudy: draft.areaOfStudy.trim(),
+      criterion: draft.criterion.trim(),
+    }
+  })
+}
+
+export async function analyseMistakeImageBatch(
+  files: File[],
+  attempts: ExamAttempt[],
+  selectedAttemptId: string,
+  studies: VcaaStudyResources[],
+  onProgress?: (progress: ChatGPTProgress) => void,
+): Promise<MistakeDraft[]> {
+  const validationError = validateMistakeBatchImages(files)
+  if (validationError) throw new Error(validationError)
+  const selectedAttempt = attempts.find((attempt) => attempt.id === selectedAttemptId)
+  if (!selectedAttempt) throw new Error("Choose the exam first so ChatGPT can use the correct paper.")
+  const examPdf = findVcaaExamForAttempt(selectedAttempt, studies)
+  if (selectedAttempt.provider.trim().toLowerCase() === "vcaa" && !examPdf) {
+    throw new Error("This attempt could not be matched to an exam PDF in the VCAA library.")
+  }
+
+  onProgress?.({ phase: "connecting", tokens: 0, estimated: true, reasoning: false })
+  const { chatgpt, model, settings } = await getChatGPTModel()
+  const draftProperties = {
+    attemptId: { type: "string", enum: [selectedAttempt.id] },
+    question: { type: "string" },
+    questionText: { type: "string" },
+    category: { type: "string", enum: [...MISTAKE_CATEGORIES] },
+    explanation: { type: "string" },
+    correction: { type: "string" },
+    areaOfStudy: { type: "string" },
+    criterion: { type: "string" },
+    totalMarks: { type: "number", exclusiveMinimum: 0 },
+    marksLost: { type: "number", minimum: 0 },
+  } as const
+  const schema = jsonSchema<{ mistakes: IndexedMistakeDraft[] }>({
+    type: "object",
+    additionalProperties: false,
+    required: ["mistakes"],
+    properties: {
+      mistakes: {
+        type: "array",
+        minItems: files.length,
+        maxItems: files.length,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["imageIndex", "attemptId", "question", "questionText", "category", "explanation", "correction", "areaOfStudy", "criterion", "totalMarks", "marksLost"],
+          properties: {
+            imageIndex: { type: "integer", minimum: 0, maximum: files.length - 1 },
+            ...draftProperties,
+          },
+        },
+      },
+    },
+  })
+  const imageParts = (await Promise.all(files.map(async (file, imageIndex) => ([
+    { type: "text" as const, text: `Separate question imageIndex ${imageIndex}:` },
+    { type: "image" as const, image: await file.arrayBuffer(), mediaType: file.type },
+  ])))).flat()
+  const result = streamText({
+    model: chatgpt(model),
+    output: Output.object({ schema, name: "mistake_batch" }),
+    maxOutputTokens: Math.max(1600, files.length * 1000),
+    headers: { "x-login-with-chatgpt-reasoning-effort": settings.reasoningEffort },
+    onChunk: createChatGPTProgressHandler(onProgress),
+    messages: [{
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: `Each attached image is a different question from the same logged exam. Create exactly one separate mistake draft per image, in attachment order, using zero-based imageIndex values. Never merge context, responses, annotations, or feedback across images. The selected exam is ${JSON.stringify(selectedAttempt)}. ${examPdf ? "Use the attached official VCAA exam PDF to restore cropped question context and confirm item labels and marks." : "No official exam PDF is available, so use only each individual image."} Make each questionText fully self-contained, keep explanations diagnostic and corrections actionable, and use Markdown with LaTeX only where appropriate. Infer totalMarks and marksLost from the paper, score, or annotations; marksLost must not exceed totalMarks. Use an empty string for an uncertain topic or criterion and 'Item unclear' for an unreadable label.`,
+        },
+        ...(examPdf ? [{ type: "file" as const, data: new URL(examPdf.url), mediaType: "application/pdf", filename: examPdf.label }] : []),
+        ...imageParts,
+      ],
+    }],
+  })
+  return orderMistakeBatchDrafts((await result.output).mistakes, files.length)
 }
