@@ -207,14 +207,15 @@ export default function App() {
       completedExamIdsUpdatedAt: new Date().toISOString(),
     }))
   }
-  function saveMistake(mistake: Mistake) {
+  function saveMistake(mistakeOrMistakes: Mistake | Mistake[]) {
+    const mistakes = Array.isArray(mistakeOrMistakes) ? mistakeOrMistakes : [mistakeOrMistakes]
     setData((current) => ({
       ...current,
       mistakes: editingMistake
-        ? current.mistakes.map((item) => item.id === mistake.id ? mistake : item)
-        : [...current.mistakes, mistake],
+        ? current.mistakes.map((item) => item.id === mistakes[0].id ? mistakes[0] : item)
+        : [...current.mistakes, ...mistakes],
     }))
-    toast.success(editingMistake ? "Mistake updated" : "Mistake saved")
+    toast.success(editingMistake ? "Mistake updated" : `${mistakes.length} mistake${mistakes.length === 1 ? "" : "s"} saved`)
   }
 
   function saveTimedAttempt(attempt: ExamAttempt) {
