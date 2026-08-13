@@ -240,6 +240,8 @@ describe("exam analysis", () => {
 
     expect(isAppData(data)).toBe(true)
     expect(isAppData({ ...data, mistakes: [{ ...mistake, questionText: "Differentiate $e^{2x}$." }] })).toBe(true)
+    expect(isAppData({ ...data, mistakes: [{ ...mistake, attachments: [{ id: "image-1", name: "graph.png", type: "image/png", size: 2048, storagePath: "user-1/mistake-1/image-1.png" }] }] })).toBe(true)
+    expect(isAppData({ ...data, mistakes: [{ ...mistake, attachments: [{ id: "image-1", name: "graph.png", type: "image/png", size: "large", storagePath: "user-1/mistake-1/image-1.png" }] }] })).toBe(false)
     expect(isAppData({ ...data, mistakes: [{ ...mistake, reviewState: "review", intervalDays: 8, easeFactor: 2.5, repetitions: 2, lapses: 1, lastReviewedAt: attempt.updatedAt, suspended: false }] })).toBe(true)
     expect(isAppData({ ...data, mistakes: [{ ...mistake, questionText: 42 }] })).toBe(false)
     expect(isAppData({ ...data, mistakes: [{ ...mistake, reviewState: "forgotten" }] })).toBe(false)

@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react"
 import { useLoginWithChatGPT } from "@opencoredev/loginwithchatgpt-react"
-import { ArrowLeft, CheckCircle2, Copy, ExternalLink, Images, LogOut, Pencil, Sparkles } from "lucide-react"
+import { ArrowLeft, CheckCircle2, Copy, ExternalLink, Images, LogOut, Pencil, Sparkles, X } from "lucide-react"
+import { MistakeAttachments } from "@/components/mistake-attachments"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -42,6 +43,7 @@ import {
   validateMistakeMarks,
 } from "@/lib/exam-data"
 import { analyseMistakeImageBatch, analyseMistakeImages, formatChatGPTProgress, validateMistakeBatchImages, validateMistakeImages, type ChatGPTProgress, type MistakeDraft } from "@/lib/mistake-ai"
+import { removeMistakeAttachments, uploadMistakeAttachments, validateSavedMistakeImages } from "@/lib/mistake-attachments"
 import type { VcaaStudyResources } from "@/lib/vcaa-resources"
 
 type MistakeSheetProps = {
@@ -50,6 +52,7 @@ type MistakeSheetProps = {
   studies: VcaaStudyResources[]
   initialAttemptId?: string | null
   initialMistake?: Mistake | null
+  storageUserId?: string | null
   onOpenChange: (open: boolean) => void
   onSave: (mistake: Mistake | Mistake[]) => void
 }
@@ -110,6 +113,7 @@ export function MistakeSheet({
   studies,
   initialAttemptId,
   initialMistake,
+  storageUserId,
   onOpenChange,
   onSave,
 }: MistakeSheetProps) {
@@ -125,10 +129,13 @@ export function MistakeSheet({
   const [totalMarks, setTotalMarks] = useState(initialMistake?.totalMarks ?? 0)
   const [marksLost, setMarksLost] = useState(initialMistake?.marksLost ?? 0)
   const [images, setImages] = useState<File[]>([])
+  const [savedAttachments, setSavedAttachments] = useState(initialMistake?.attachments ?? [])
+  const [saveImages, setSaveImages] = useState(Boolean(storageUserId))
   const [importMode, setImportMode] = useState<"single" | "batch">("single")
   const [batchDrafts, setBatchDrafts] = useState<MistakeDraft[]>([])
   const [activeBatchIndex, setActiveBatchIndex] = useState<number | null>(null)
   const [analysing, setAnalysing] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [progress, setProgress] = useState<ChatGPTProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -153,6 +160,8 @@ export function MistakeSheet({
     setTotalMarks(0)
     setMarksLost(0)
     setImages([])
+    setSavedAttachments([])
+    setSaveImages(Boolean(storageUserId))
     setImportMode("single")
     setBatchDrafts([])
     setActiveBatchIndex(null)
@@ -231,7 +240,7 @@ export function MistakeSheet({
     setError(null)
   }
 
-  function saveBatch() {
+  async function saveBatch() {
     const reviewedDrafts = commitActiveBatchDraft()
     const invalidIndex = reviewedDrafts.findIndex((draft) => validateMistakeDraft(draft))
     if (invalidIndex !== -1) {
@@ -242,13 +251,37 @@ export function MistakeSheet({
       return
     }
 
-    const timestamp = new Date().toISOString()
-    onSave(reviewedDrafts.map((draft) => createMistake(draft, timestamp)))
-    reset()
-    onOpenChange(false)
+    if (saveImages && !storageUserId) {
+      setError("Sign in to ExamTrack sync in Settings to save images with mistakes.")
+      return
+    }
+    setSaving(true)
+    setError(null)
+    const uploadedPaths: string[] = []
+    try {
+      const timestamp = new Date().toISOString()
+      const mistakes: Mistake[] = []
+      for (const [index, draft] of reviewedDrafts.entries()) {
+        const mistake = createMistake(draft, timestamp)
+        const files = saveImages && images[index] ? [images[index]] : []
+        const validationError = validateSavedMistakeImages(files)
+        if (validationError) throw new Error(`Question ${index + 1}: ${validationError}`)
+        const attachments = files.length && storageUserId ? await uploadMistakeAttachments(storageUserId, mistake.id, files) : []
+        uploadedPaths.push(...attachments.map(({ storagePath }) => storagePath))
+        mistakes.push({ ...mistake, attachments })
+      }
+      onSave(mistakes)
+      reset()
+      onOpenChange(false)
+    } catch (error) {
+      if (uploadedPaths.length) await removeMistakeAttachments(uploadedPaths).catch(() => undefined)
+      setError(error instanceof Error ? error.message : "Could not save the attached images.")
+    } finally {
+      setSaving(false)
+    }
   }
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const draft = readCurrentDraft()
     const validationError = validateMistakeDraft(draft)
@@ -264,9 +297,31 @@ export function MistakeSheet({
       return
     }
 
-    onSave(createMistake(draft, new Date().toISOString(), initialMistake))
-    reset()
-    onOpenChange(false)
+    const filesToSave = saveImages ? images : []
+    const attachmentError = validateSavedMistakeImages(filesToSave, savedAttachments.length, savedAttachments.reduce((total, attachment) => total + attachment.size, 0))
+    if (attachmentError) return setError(attachmentError)
+    if (filesToSave.length && !storageUserId) return setError("Sign in to ExamTrack sync in Settings to save images with mistakes.")
+    const removedPaths = (initialMistake?.attachments ?? [])
+      .filter((attachment) => !savedAttachments.some(({ id }) => id === attachment.id))
+      .map(({ storagePath }) => storagePath)
+    if (removedPaths.length && !storageUserId) return setError("Sign in to ExamTrack sync before removing saved images.")
+
+    setSaving(true)
+    setError(null)
+    const mistake = createMistake(draft, new Date().toISOString(), initialMistake)
+    let uploadedAttachments: Mistake["attachments"] = []
+    try {
+      if (filesToSave.length && storageUserId) uploadedAttachments = await uploadMistakeAttachments(storageUserId, mistake.id, filesToSave)
+      if (removedPaths.length) await removeMistakeAttachments(removedPaths)
+      onSave({ ...mistake, attachments: [...savedAttachments, ...(uploadedAttachments ?? [])] })
+      reset()
+      onOpenChange(false)
+    } catch (error) {
+      if (uploadedAttachments?.length) await removeMistakeAttachments(uploadedAttachments.map(({ storagePath }) => storagePath)).catch(() => undefined)
+      setError(error instanceof Error ? error.message : "Could not save the attached images.")
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -288,7 +343,7 @@ export function MistakeSheet({
             <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/30 p-3">
               <div>
                 <p className="text-sm font-medium">{batchDrafts.length} separate mistake cards ready</p>
-                <p className="text-sm text-muted-foreground">Each image has been kept as its own question.</p>
+                <p className="text-sm text-muted-foreground">Each image has been kept as its own question{saveImages && storageUserId ? " and will be saved as private context" : ""}.</p>
               </div>
               <Button type="button" size="sm" variant="outline" onClick={() => { setBatchDrafts([]); setImages([]); setProgress(null); setError(null) }}>
                 Start over
@@ -373,6 +428,24 @@ export function MistakeSheet({
                     </Button>
                   </div>
                   <FieldDescription>{importMode === "batch" ? "Choose the shared exam, then add 2–10 images. Each image becomes a separate mistake in the same order; each can be up to 3 MB and the batch up to 15 MB." : "Choose the exam, then upload one or more related images totalling up to 3 MB. Matching VCAA attempts also include the official exam PDF for context."}</FieldDescription>
+                  {images.length ? (
+                    <label className="flex items-start gap-2 rounded-lg border p-3 text-sm">
+                      <input type="checkbox" className="mt-0.5 size-4" checked={saveImages} disabled={!storageUserId} onChange={(event) => { setSaveImages(event.target.checked); setError(null) }} />
+                      <span><span className="font-medium">Save {importMode === "batch" ? "each image with its mistake" : "these images with the mistake"}</span><br /><span className="text-xs text-muted-foreground">{storageUserId ? "Keeps graphs, annotations, and other context available during review." : "Sign in to ExamTrack sync in Settings to store private image attachments."}</span></span>
+                    </label>
+                  ) : null}
+                  {initialMistake?.attachments?.length ? (
+                    <div className="grid gap-2">
+                      <p className="text-sm font-medium">Saved images</p>
+                      <MistakeAttachments attachments={savedAttachments} />
+                      {savedAttachments.map((attachment) => (
+                        <div key={attachment.id} className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                          <span className="truncate">{attachment.name}</span>
+                          <Button type="button" size="icon-xs" variant="ghost" aria-label={`Remove ${attachment.name}`} disabled={!storageUserId} onClick={() => setSavedAttachments((items) => items.filter(({ id }) => id !== attachment.id))}><X /></Button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                   {progress ? <p role="status" aria-live="polite" className="text-sm text-muted-foreground tabular-nums">{formatChatGPTProgress(progress)}</p> : null}
                   <div className="rounded-lg border bg-muted/30 p-3">
                     {auth.status === "loading" ? <p className="text-sm text-muted-foreground">Checking ChatGPT connection…</p> : null}
@@ -493,9 +566,9 @@ export function MistakeSheet({
 
         <SheetFooter>
           {isBatchReview && !isEditingBatchDraft ? (
-            <Button type="button" onClick={saveBatch} disabled={analysing}>Save all {batchDrafts.length} mistakes</Button>
+            <Button type="button" onClick={() => void saveBatch()} disabled={analysing || saving}>{saving ? "Saving…" : `Save all ${batchDrafts.length} mistakes`}</Button>
           ) : (
-            <Button type="submit" form="mistake-form" disabled={attempts.length === 0 || analysing}>{isEditingBatchDraft ? "Done editing" : initialMistake ? "Save changes" : "Save mistake"}</Button>
+            <Button type="submit" form="mistake-form" disabled={attempts.length === 0 || analysing || saving}>{saving ? "Saving…" : isEditingBatchDraft ? "Done editing" : initialMistake ? "Save changes" : "Save mistake"}</Button>
           )}
         </SheetFooter>
       </SheetContent>

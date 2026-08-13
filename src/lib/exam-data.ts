@@ -105,6 +105,14 @@ export type MistakeReview = {
   easeFactor?: number
 }
 
+export type MistakeAttachment = {
+  id: string
+  name: string
+  type: string
+  size: number
+  storagePath: string
+}
+
 export type Mistake = {
   id: string
   attemptId: string
@@ -117,6 +125,7 @@ export type Mistake = {
   marksLost?: number
   areaOfStudy?: string
   criterion?: string
+  attachments?: MistakeAttachment[]
   dueAt?: string | null
   reviewHistory?: MistakeReview[]
   reviewState?: MistakeReviewState
@@ -805,6 +814,14 @@ export function isAppData(value: unknown): value is AppData {
         (mistake.totalMarks === undefined && mistake.marksLost === undefined || validateMistakeMarks(mistake.totalMarks!, mistake.marksLost!) === null) &&
         (mistake.areaOfStudy === undefined || typeof mistake.areaOfStudy === "string") &&
         (mistake.criterion === undefined || typeof mistake.criterion === "string") &&
+        (mistake.attachments === undefined || Array.isArray(mistake.attachments) && mistake.attachments.every((attachment) =>
+          isRecord(attachment) &&
+          typeof attachment.id === "string" &&
+          typeof attachment.name === "string" &&
+          typeof attachment.type === "string" &&
+          typeof attachment.size === "number" && Number.isFinite(attachment.size) && attachment.size >= 0 &&
+          typeof attachment.storagePath === "string"
+        )) &&
         (mistake.dueAt === undefined || mistake.dueAt === null || typeof mistake.dueAt === "string") &&
         (mistake.reviewHistory === undefined || Array.isArray(mistake.reviewHistory) && mistake.reviewHistory.every(isMistakeReview)) &&
         (mistake.reviewState === undefined || ["new", "learning", "review", "relearning"].includes(mistake.reviewState)) &&

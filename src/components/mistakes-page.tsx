@@ -3,6 +3,7 @@ import { BookOpenCheck, FileDown, NotebookPen, Plus, Search, Shuffle, SkipForwar
 import { toast } from "sonner"
 
 import { MarkdownPreview } from "@/components/markdown-preview"
+import { MistakeAttachments } from "@/components/mistake-attachments"
 import { MistakeAlternativeDeck } from "@/components/mistake-alternative-deck"
 import { MistakeInsights } from "@/components/mistake-insights"
 import { PageHeader } from "@/components/page-header"
@@ -127,6 +128,7 @@ function ReviewCard({ mistake, attempt, studies, onRate }: { mistake: Mistake; a
         <section>
           <p className="mb-3 text-xs font-medium tracking-wide text-muted-foreground uppercase">Question</p>
           <MarkdownPreview>{mistake.questionText?.trim() || mistake.question}</MarkdownPreview>
+          <MistakeAttachments attachments={mistake.attachments} />
         </section>
         {revealed ? <>
           <Separator />
@@ -266,6 +268,7 @@ function BrowseCard({ mistake, attempt, studies, onEdit, onToggleSuspend, onDele
         <div className="line-clamp-3 text-sm">
           <MarkdownPreview inline>{mistake.questionText?.trim() || mistake.question}</MarkdownPreview>
         </div>
+        <MistakeAttachments attachments={mistake.attachments} compact />
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <span>{mistake.suspended ? "Not in queue" : isDue ? "Due now" : `Due ${formatDueDate(schedule.dueAt)}`}</span>
           <span>Interval {schedule.intervalDays ? `${schedule.intervalDays}d` : "—"}</span>
