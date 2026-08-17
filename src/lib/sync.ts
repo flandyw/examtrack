@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react"
 import type { User } from "@supabase/supabase-js"
-import { EMPTY_APP_DATA, migrateAppData, type AlternativeMistakeDeck, type AppData, type ExamAttempt, type Mistake, type MistakeInsights } from "@/lib/exam-data"
+import { EMPTY_APP_DATA, migrateAppData, type AlternativeMistakeDeck, type AppData, type ExamAttempt, type Mistake, type MistakeInsights, type SavedAtarEstimate } from "@/lib/exam-data"
 import { supabase } from "@/lib/supabase"
 import { isExamDifficultySettings } from "@/lib/exam-difficulty"
 import { migrateSacRecords, type SacRecord } from "@/lib/sac"
@@ -99,6 +99,17 @@ export function mergeAlternativeMistakeDeck(local?: AlternativeMistakeDeck, remo
   return remote && remote.updatedAt > (local?.updatedAt ?? "") ? remote : local
 }
 
+export function mergeAtarEstimates(
+  local: SavedAtarEstimate[],
+  localUpdatedAt: string,
+  remote: SavedAtarEstimate[],
+  remoteUpdatedAt: string,
+) {
+  return remoteUpdatedAt > localUpdatedAt
+    ? { atarEstimates: remote, atarEstimatesUpdatedAt: remoteUpdatedAt }
+    : { atarEstimates: local, atarEstimatesUpdatedAt: localUpdatedAt }
+}
+
 async function syncCollection<T extends { id: string; updatedAt: string }>(
   collection: Collection,
   userId: string,
@@ -168,7 +179,7 @@ export async function syncAppData(data: AppData, userId: string): Promise<AppDat
     syncCollection<ExamAttempt>("attempts", userId, data.attempts, attemptRows, tombstones.attempts),
     syncCollection<Mistake>("mistakes", userId, data.mistakes, mistakeRows, tombstones.mistakes),
   ])
-  const remoteState = stateResult.data?.payload as { trackedExamIds?: unknown; trackedExamIdsUpdatedAt?: unknown; completedExamIds?: unknown; completedExamIdsUpdatedAt?: unknown; subjects?: unknown; subjectsUpdatedAt?: unknown; sacRecords?: unknown; sacRecordsUpdatedAt?: unknown; activeExamTimer?: unknown; activeExamTimerUpdatedAt?: unknown; activeSacTimer?: unknown; activeSacTimerUpdatedAt?: unknown; mistakeInsights?: unknown; alternativeMistakeDeck?: unknown; examDifficulty?: unknown } | undefined
+  const remoteState = stateResult.data?.payload as { trackedExamIds?: unknown; trackedExamIdsUpdatedAt?: unknown; completedExamIds?: unknown; completedExamIdsUpdatedAt?: unknown; subjects?: unknown; subjectsUpdatedAt?: unknown; sacRecords?: unknown; sacRecordsUpdatedAt?: unknown; activeExamTimer?: unknown; activeExamTimerUpdatedAt?: unknown; activeSacTimer?: unknown; activeSacTimerUpdatedAt?: unknown; mistakeInsights?: unknown; alternativeMistakeDeck?: unknown; examDifficulty?: unknown; atarEstimates?: unknown; atarEstimatesUpdatedAt?: unknown } | undefined
   const remoteIds = Array.isArray(remoteState?.trackedExamIds) && remoteState.trackedExamIds.every((id) => typeof id === "string") ? remoteState.trackedExamIds : []
   const remoteUpdatedAt = typeof remoteState?.trackedExamIdsUpdatedAt === "string" ? remoteState.trackedExamIdsUpdatedAt : (stateResult.data?.updated_at ?? "")
   const { trackedExamIds, trackedExamIdsUpdatedAt } = mergeTrackedState(data.trackedExamIds, data.trackedExamIdsUpdatedAt, remoteIds, remoteUpdatedAt)
@@ -209,14 +220,19 @@ export async function syncAppData(data: AppData, userId: string): Promise<AppDat
   const examDifficulty = remoteDifficulty && remoteDifficulty.updatedAt > (data.examDifficulty?.updatedAt ?? "")
     ? remoteDifficulty
     : data.examDifficulty
+  const remoteAtarEstimates = Array.isArray(remoteState?.atarEstimates)
+    ? migrateAppData({ ...EMPTY_APP_DATA, atarEstimates: remoteState.atarEstimates })?.atarEstimates ?? []
+    : []
+  const remoteAtarEstimatesUpdatedAt = typeof remoteState?.atarEstimatesUpdatedAt === "string" ? remoteState.atarEstimatesUpdatedAt : "1970-01-01T00:00:00.000Z"
+  const { atarEstimates, atarEstimatesUpdatedAt } = mergeAtarEstimates(data.atarEstimates, data.atarEstimatesUpdatedAt, remoteAtarEstimates, remoteAtarEstimatesUpdatedAt)
   const { error: stateError } = await supabase.from("user_state").upsert({
     user_id: userId,
-    payload: { trackedExamIds, trackedExamIdsUpdatedAt, completedExamIds, completedExamIdsUpdatedAt, subjects, subjectsUpdatedAt, sacRecords, sacRecordsUpdatedAt, activeExamTimer, activeExamTimerUpdatedAt, activeSacTimer, activeSacTimerUpdatedAt, mistakeInsights, alternativeMistakeDeck, examDifficulty },
-    updated_at: [trackedExamIdsUpdatedAt, completedExamIdsUpdatedAt, subjectsUpdatedAt, sacRecordsUpdatedAt, activeExamTimerUpdatedAt, activeSacTimerUpdatedAt, mistakeInsights?.questionsGeneratedAt ?? mistakeInsights?.generatedAt ?? "", alternativeMistakeDeck?.updatedAt ?? "", examDifficulty?.updatedAt ?? ""].toSorted().at(-1),
+    payload: { trackedExamIds, trackedExamIdsUpdatedAt, completedExamIds, completedExamIdsUpdatedAt, subjects, subjectsUpdatedAt, sacRecords, sacRecordsUpdatedAt, activeExamTimer, activeExamTimerUpdatedAt, activeSacTimer, activeSacTimerUpdatedAt, mistakeInsights, alternativeMistakeDeck, examDifficulty, atarEstimates, atarEstimatesUpdatedAt },
+    updated_at: [trackedExamIdsUpdatedAt, completedExamIdsUpdatedAt, subjectsUpdatedAt, sacRecordsUpdatedAt, activeExamTimerUpdatedAt, activeSacTimerUpdatedAt, mistakeInsights?.questionsGeneratedAt ?? mistakeInsights?.generatedAt ?? "", alternativeMistakeDeck?.updatedAt ?? "", examDifficulty?.updatedAt ?? "", atarEstimatesUpdatedAt].toSorted().at(-1),
   }, { onConflict: "user_id" })
   if (stateError) throw stateError
   saveTombstones(tombstones)
-  return { ...data, attempts: attempts ?? data.attempts, mistakes: mistakes ?? data.mistakes, subjects, subjectsUpdatedAt, trackedExamIds, trackedExamIdsUpdatedAt, completedExamIds, completedExamIdsUpdatedAt, sacRecords, sacRecordsUpdatedAt, activeExamTimer, activeExamTimerUpdatedAt, activeSacTimer, activeSacTimerUpdatedAt, mistakeInsights, alternativeMistakeDeck, examDifficulty }
+  return { ...data, attempts: attempts ?? data.attempts, mistakes: mistakes ?? data.mistakes, subjects, subjectsUpdatedAt, trackedExamIds, trackedExamIdsUpdatedAt, completedExamIds, completedExamIdsUpdatedAt, sacRecords, sacRecordsUpdatedAt, activeExamTimer, activeExamTimerUpdatedAt, activeSacTimer, activeSacTimerUpdatedAt, mistakeInsights, alternativeMistakeDeck, examDifficulty, atarEstimates, atarEstimatesUpdatedAt }
 }
 
 export type SyncStatus = "unconfigured" | "signed-out" | "syncing" | "synced" | "error"

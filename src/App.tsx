@@ -30,6 +30,7 @@ import {
   type AppData,
   type ExamAttempt,
   type Mistake,
+  type SavedAtarEstimate,
 } from "@/lib/exam-data"
 import { downloadAppData, loadAppData, parseAppDataFile, saveAppData } from "@/lib/storage"
 import { useSupabaseSync } from "@/lib/sync"
@@ -184,6 +185,25 @@ export default function App() {
 
   function saveSubjects(subjects: string[]) {
     setData((current) => ({ ...current, subjects, subjectsUpdatedAt: new Date().toISOString() }))
+  }
+
+  function saveAtarEstimate(estimate: SavedAtarEstimate) {
+    const updatedAt = new Date().toISOString()
+    setData((current) => ({
+      ...current,
+      atarEstimates: [estimate, ...current.atarEstimates],
+      atarEstimatesUpdatedAt: updatedAt,
+    }))
+    toast.success("ATAR estimate saved")
+  }
+
+  function deleteAtarEstimate(id: string) {
+    setData((current) => ({
+      ...current,
+      atarEstimates: current.atarEstimates.filter((estimate) => estimate.id !== id),
+      atarEstimatesUpdatedAt: new Date().toISOString(),
+    }))
+    toast("Saved ATAR estimate deleted")
   }
 
   function saveExamDifficulty(examDifficulty: ExamDifficultySettings) {
@@ -400,7 +420,7 @@ export default function App() {
           {view === "sacs" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><SacPage records={data.sacRecords} subjects={references.map((reference) => reference.studyName)} preferredSubjects={data.subjects} activeTimer={data.activeSacTimer} onTimerChange={saveActiveSacTimer} onSave={saveSac} onDelete={deleteSac} /></Suspense> : null}
           {view === "library" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><ExamLibrary references={references} studies={resourceStudies} attempts={data.attempts} completedExamIds={data.completedExamIds} generatedAt={resourcesGeneratedAt ?? referencesGeneratedAt} preferredSubjects={data.subjects} onToggleCompleted={toggleCompletedExam} onStart={(preset) => { setTimerPreset(preset); setView("timer") }} /></Suspense> : null}
           {view === "timer" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><ExamTimer key={timerPreset ? `${timerPreset.subject}-${timerPreset.examYear}-${timerPreset.paper}` : "manual"} references={references} studies={resourceStudies} preferredSubjects={data.subjects} initialExam={timerPreset} activeSession={data.activeExamTimer} onSessionChange={saveActiveExamTimer} onSave={(attempt) => { setTimerPreset(null); saveTimedAttempt(attempt) }} /></Suspense> : null}
-          {view === "predictor" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><StudyScorePredictor data={data} references={references} scalingReferences={scalingReferences} /></Suspense> : null}
+          {view === "predictor" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><StudyScorePredictor data={data} references={references} scalingReferences={scalingReferences} onSaveAtarEstimate={saveAtarEstimate} onDeleteAtarEstimate={deleteAtarEstimate} /></Suspense> : null}
           {view === "vcaa" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><VcaaExplorer references={references} attempts={data.attempts} preferredSubjects={data.subjects} /></Suspense> : null}
           {view === "settings" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><SettingsPage sync={sync} focal={focal} subjects={[...new Set(references.map((reference) => reference.studyName))]} selectedSubjects={data.subjects} providers={[...new Set(data.attempts.map((attempt) => attempt.provider))]} examDifficulty={data.examDifficulty} onSubjectsChange={saveSubjects} onExamDifficultyChange={saveExamDifficulty} /></Suspense> : null}
         </main>

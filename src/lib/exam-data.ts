@@ -170,6 +170,22 @@ export type AlternativeMistakeDeck = {
   updatedAt: string
 }
 
+export type AtarEstimatorRow = {
+  id: string
+  code: string
+  raw: string
+  usePrediction: boolean
+}
+
+export type SavedAtarEstimate = {
+  id: string
+  year: number
+  rows: AtarEstimatorRow[]
+  atarLabel: string
+  aggregate: number | null
+  savedAt: string
+}
+
 export type AppData = {
   schemaVersion: 4
   attempts: ExamAttempt[]
@@ -189,6 +205,8 @@ export type AppData = {
   mistakeInsights?: MistakeInsights
   alternativeMistakeDeck?: AlternativeMistakeDeck
   examDifficulty?: ExamDifficultySettings
+  atarEstimates: SavedAtarEstimate[]
+  atarEstimatesUpdatedAt: string
 }
 
 export const EMPTY_APP_DATA: AppData = {
@@ -205,6 +223,8 @@ export const EMPTY_APP_DATA: AppData = {
   completedExamIdsUpdatedAt: "1970-01-01T00:00:00.000Z",
   activeExamTimerUpdatedAt: "1970-01-01T00:00:00.000Z",
   activeSacTimerUpdatedAt: "1970-01-01T00:00:00.000Z",
+  atarEstimates: [],
+  atarEstimatesUpdatedAt: "1970-01-01T00:00:00.000Z",
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -862,7 +882,10 @@ export function isAppData(value: unknown): value is AppData {
     typeof data.activeSacTimerUpdatedAt === "string" &&
     (data.mistakeInsights === undefined || isMistakeInsights(data.mistakeInsights)) &&
     (data.alternativeMistakeDeck === undefined || isAlternativeMistakeDeck(data.alternativeMistakeDeck)) &&
-    (data.examDifficulty === undefined || isExamDifficultySettings(data.examDifficulty))
+    (data.examDifficulty === undefined || isExamDifficultySettings(data.examDifficulty)) &&
+    Array.isArray(data.atarEstimates) &&
+    data.atarEstimates.every(isSavedAtarEstimate) &&
+    typeof data.atarEstimatesUpdatedAt === "string"
   )
 }
 
@@ -887,6 +910,24 @@ function isAlternativeMistakeDeck(value: unknown): value is AlternativeMistakeDe
     typeof card.marks === "number" && Number.isInteger(card.marks) && card.marks > 0 &&
     typeof card.generatedAt === "string") &&
     typeof value.updatedAt === "string"
+}
+
+function isAtarEstimatorRow(value: unknown): value is AtarEstimatorRow {
+  if (!isRecord(value)) return false
+  return typeof value.id === "string" &&
+    typeof value.code === "string" &&
+    typeof value.raw === "string" &&
+    typeof value.usePrediction === "boolean"
+}
+
+function isSavedAtarEstimate(value: unknown): value is SavedAtarEstimate {
+  if (!isRecord(value)) return false
+  return typeof value.id === "string" &&
+    typeof value.year === "number" && Number.isInteger(value.year) &&
+    Array.isArray(value.rows) && value.rows.every(isAtarEstimatorRow) &&
+    typeof value.atarLabel === "string" &&
+    (value.aggregate === null || typeof value.aggregate === "number" && Number.isFinite(value.aggregate)) &&
+    typeof value.savedAt === "string"
 }
 
 function isQuestionResult(value: unknown): value is QuestionResult {
@@ -937,6 +978,8 @@ export function migrateAppData(value: unknown): AppData | null {
     activeSacTimerUpdatedAt: typeof data.activeSacTimerUpdatedAt === "string" ? data.activeSacTimerUpdatedAt : "1970-01-01T00:00:00.000Z",
     sacRecords,
     sacRecordsUpdatedAt: typeof data.sacRecordsUpdatedAt === "string" ? data.sacRecordsUpdatedAt : "1970-01-01T00:00:00.000Z",
+    atarEstimates: Array.isArray(data.atarEstimates) ? data.atarEstimates : [],
+    atarEstimatesUpdatedAt: typeof data.atarEstimatesUpdatedAt === "string" ? data.atarEstimatesUpdatedAt : "1970-01-01T00:00:00.000Z",
   }
   return isAppData(migrated) ? migrated : null
 }

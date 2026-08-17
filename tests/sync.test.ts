@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { mergeAlternativeMistakeDeck, mergeCollection, mergeMistakeInsights, mergeSacState, mergeTrackedState } from "../src/lib/sync"
+import { mergeAlternativeMistakeDeck, mergeAtarEstimates, mergeCollection, mergeMistakeInsights, mergeSacState, mergeTrackedState } from "../src/lib/sync"
 import { mergeTimerSession } from "../src/lib/ongoing-timers"
 
 type Item = { id: string; updatedAt: string; value: string }
@@ -86,5 +86,12 @@ describe("sync merge", () => {
     const newer = { cards: [], updatedAt: "2026-07-15T02:00:00.000Z" }
     expect(mergeAlternativeMistakeDeck(older, newer)).toEqual(newer)
     expect(mergeAlternativeMistakeDeck(newer, older)).toEqual(newer)
+  })
+
+  test("keeps the newest saved ATAR scenarios", () => {
+    const local = [{ id: "local", year: 2025, rows: [], atarLabel: "90.00", aggregate: 180, savedAt: "2026-07-15T01:00:00.000Z" }]
+    const remote = [{ id: "remote", year: 2025, rows: [], atarLabel: "95.00", aggregate: 190, savedAt: "2026-07-15T02:00:00.000Z" }]
+    expect(mergeAtarEstimates(local, "2026-07-15T01:00:00.000Z", remote, "2026-07-15T02:00:00.000Z"))
+      .toEqual({ atarEstimates: remote, atarEstimatesUpdatedAt: "2026-07-15T02:00:00.000Z" })
   })
 })

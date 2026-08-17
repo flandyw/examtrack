@@ -11,7 +11,7 @@ import { AtarEstimator } from "@/components/atar-estimator"
 import { PageHeader } from "@/components/page-header"
 import { SubjectCombobox } from "@/components/subject-combobox"
 import { StudyScoreTrendChart } from "@/components/study-score-trend-chart"
-import type { AppData, AssessmentReference } from "@/lib/exam-data"
+import type { AppData, AssessmentReference, SavedAtarEstimate } from "@/lib/exam-data"
 import { buildStudyScoreTrend, defaultExamWeight, predictStudyScore } from "@/lib/study-score"
 import { prioritiseSubjects } from "@/lib/subjects"
 import { normaliseScalingStudyName, predictScaledStudyScore, type ScalingReference } from "@/lib/scaling"
@@ -24,10 +24,14 @@ export function StudyScorePredictor({
   data,
   references,
   scalingReferences,
+  onSaveAtarEstimate,
+  onDeleteAtarEstimate,
 }: {
   data: AppData
   references: AssessmentReference[]
   scalingReferences: ScalingReference[]
+  onSaveAtarEstimate: (estimate: SavedAtarEstimate) => void
+  onDeleteAtarEstimate: (id: string) => void
 }) {
   const subjects = useMemo(
     () => prioritiseSubjects(data.attempts.map((attempt) => attempt.subject), data.subjects),
@@ -289,7 +293,14 @@ export function StudyScorePredictor({
         The algorithm models study scores with a statewide mean of 30 and standard deviation of 7, after combining the recency-weighted exam and SAC percentile estimates.
       </div>
 
-      <AtarEstimator data={data} references={references} scalingReferences={scalingReferences} />
+      <AtarEstimator
+        data={data}
+        references={references}
+        scalingReferences={scalingReferences}
+        savedEstimates={data.atarEstimates}
+        onSaveEstimate={onSaveAtarEstimate}
+        onDeleteEstimate={onDeleteAtarEstimate}
+      />
     </div>
   )
 }
