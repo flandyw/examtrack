@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { createChatGPTProgressHandler, orderMistakeBatchDrafts, selectChatGPTModel, validateMistakeBatchImages, validateMistakeImage, validateMistakeImages } from "../src/lib/mistake-ai"
+import { createChatGPTProgressHandler, formatMistakeAIError, orderMistakeBatchDrafts, selectChatGPTModel, validateMistakeBatchImages, validateMistakeImage, validateMistakeImages } from "../src/lib/mistake-ai"
 
 describe("mistake image analysis", () => {
   test("validates uploads and chooses from the account's available models", () => {
@@ -12,8 +12,16 @@ describe("mistake image analysis", () => {
     expect(validateMistakeBatchImages(Array.from({ length: 11 }, () => ({ type: "image/jpeg", size: 100 })))).toBe("Choose no more than 10 images at once.")
     expect(selectChatGPTModel(["gpt-5.6-sol", "gpt-5.5"])).toBe("gpt-5.6-sol")
     expect(selectChatGPTModel(["gpt-5.4-mini", "gpt-5.5"], "gpt-5.4-mini")).toBe("gpt-5.4-mini")
+    expect(selectChatGPTModel(["gpt-5.5-pro", "gpt-5.5"])).toBe("gpt-5.5")
+    expect(selectChatGPTModel(["gpt-5.5-pro"], "gpt-5.5-pro")).toBeNull()
     expect(selectChatGPTModel(["account-specific-model"])).toBe("account-specific-model")
     expect(selectChatGPTModel([])).toBeNull()
+  })
+
+  test("turns proxy failures into useful messages", () => {
+    expect(formatMistakeAIError({ statusCode: 400, responseBody: '{"detail":"Streaming is not supported"}' })).toContain("does not support streamed analysis")
+    expect(formatMistakeAIError({ statusCode: 413, responseBody: '{"error":"responses_request_too_large"}' })).toContain("too large")
+    expect(formatMistakeAIError({ statusCode: 429 })).toContain("Wait a minute")
   })
 
   test("keeps batch drafts in image order and requires one valid result per image", () => {

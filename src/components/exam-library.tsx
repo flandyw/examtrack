@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/page-header"
 import { normaliseComparisonName, type AssessmentReference, type ExamAttempt } from "@/lib/exam-data"
 import type { ExamTimerPreset } from "@/components/exam-timer"
 import { firstPreferredSubject, prioritiseSubjects } from "@/lib/subjects"
+import { getKnownExamConditions } from "@/lib/exam-conditions"
 import { findVcaaExamReference, formatReferenceFreshness, getVcaaExamPaper, getVcaaExamResourcesUrl, getVcaaExams, isVcaaExamLogged, type VcaaExamResource, type VcaaResource, type VcaaStudyResources } from "@/lib/vcaa-resources"
 
 function pickResource(resources: VcaaResource[], kind: VcaaResource["kind"], exam: VcaaExamResource) {
@@ -56,16 +57,29 @@ export function ExamLibrary({ references, studies, attempts, completedExamIds, g
           const logged = isVcaaExamLogged(exam, attempts)
           const manuallyCompleted = completedExamIds.includes(exam.url)
           const completed = logged || manuallyCompleted
+          const paper = getVcaaExamPaper(exam)
+          const conditions = getKnownExamConditions(exam.studyName, paper)
+          const paperMarks = conditions?.marks ?? reference?.maxScore
           return (
           <Card key={exam.url} className="min-w-0">
             <CardHeader>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0"><CardTitle>{exam.studyName}</CardTitle><CardDescription>{exam.year ?? "Unknown year"} · {getVcaaExamPaper(exam)}</CardDescription></div>
-                <div className="flex gap-2">{completed ? <Badge><Check />{logged ? "Logged" : "Done"}</Badge> : null}{reference ? <Badge variant="outline">{reference.maxScore} marks</Badge> : <Badge variant="secondary">Archive · no distribution</Badge>}</div>
+                <div className="flex gap-2">{completed ? <Badge><Check />{logged ? "Logged" : "Done"}</Badge> : null}{paperMarks ? <Badge variant="outline">{paperMarks} marks</Badge> : <Badge variant="secondary">Archive · no distribution</Badge>}</div>
               </div>
             </CardHeader>
             <CardContent className="flex flex-wrap gap-2">
-              {exam.year !== null ? <Button onClick={() => onStart({ subject: exam.studyName, provider: "VCAA", examYear: exam.year!, paper: getVcaaExamPaper(exam), marks: reference?.maxScore ?? 100 })}><Play />Start timed attempt</Button> : null}
+              {exam.year !== null ? <Button onClick={() => {
+                onStart({
+                  subject: exam.studyName,
+                  provider: "VCAA",
+                  examYear: exam.year!,
+                  paper,
+                  marks: conditions?.marks ?? reference?.maxScore ?? 100,
+                  readingMinutes: conditions?.readingMinutes,
+                  writingMinutes: conditions?.writingMinutes,
+                })
+              }}><Play />Start timed attempt</Button> : null}
               <Button variant="outline" render={<a href={exam.url} target="_blank" rel="noreferrer" />}><ExternalLink />Exam paper</Button>
               {report ? <Button variant="outline" render={<a href={report.url} target="_blank" rel="noreferrer" />}><ExternalLink />Examiner report</Button> : null}
               {specification ? <Button variant="ghost" render={<a href={specification.url} target="_blank" rel="noreferrer" />}><ExternalLink />Specifications</Button> : null}

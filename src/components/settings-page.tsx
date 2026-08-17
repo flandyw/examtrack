@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import {
   loadAISettings,
   saveAISettings,
+  supportsStreamedAnalysis,
   type AISettings,
   type ReasoningEffort,
 } from "@/lib/ai-settings"
@@ -91,7 +92,7 @@ export function SettingsPage({ sync, focal, subjects, selectedSubjects, provider
   }, [auth.isAuthenticated])
 
   const identity = auth.user?.name ?? auth.user?.email ?? "ChatGPT account"
-  const modelOptions = models.filter((model) => model !== "auto" && model !== "codex-auto-review")
+  const modelOptions = models.filter(supportsStreamedAnalysis)
   const selectedModel = modelOptions.includes(settings.model) ? settings.model : modelOptions[0]
   const selectedEffort = settings.reasoningEffort === "none" ? "low" : settings.reasoningEffort
   const fillPercent = ((REASONING_OPTIONS.indexOf(selectedEffort) + 0.5) / REASONING_OPTIONS.length) * 100

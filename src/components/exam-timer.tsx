@@ -89,17 +89,19 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
   const [provider, setProvider] = useState(initialExam?.provider ?? "VCAA")
   const [examYear, setExamYear] = useState(initialExam?.examYear ?? new Date().getFullYear())
   const [paper, setPaper] = useState(initialExam?.paper ?? "")
-  const [readingMinutes, setReadingMinutes] = useState(initialExam?.readingMinutes ?? 15)
-  const [writingMinutes, setWritingMinutes] = useState(initialExam?.writingMinutes ?? 120)
-  const [marks, setMarks] = useState(initialExam?.marks ?? 100)
+  const initialConditions = getKnownExamConditions(initialExam?.subject ?? "", initialExam?.paper ?? "")
+  const [readingMinutes, setReadingMinutes] = useState(initialExam?.readingMinutes ?? initialConditions?.readingMinutes ?? 15)
+  const [writingMinutes, setWritingMinutes] = useState(initialExam?.writingMinutes ?? initialConditions?.writingMinutes ?? 120)
+  const [marks, setMarks] = useState(initialExam?.marks ?? initialConditions?.marks ?? 100)
   const [markingOpen, setMarkingOpen] = useState(false)
   const [rawScore, setRawScore] = useState(0)
-  const [rawMax, setRawMax] = useState(initialExam?.marks ?? 100)
+  const [rawMax, setRawMax] = useState(initialExam?.marks ?? initialConditions?.marks ?? 100)
   const [comment, setComment] = useState("")
   const [performanceContext, setPerformanceContext] = useState<PerformanceContext>({})
   const [completedAt, setCompletedAt] = useState(today)
   const [markingError, setMarkingError] = useState<string | null>(null)
   const [questionResults, setQuestionResults] = useState<QuestionResult[]>([])
+  const lastAutofilledKey = useRef<string | null>(null)
   const history = useMemo(loadAppData, [])
   const suggestions = useMemo(
     () => buildExamSuggestions(history.attempts, references, preferredSubjects, 4, studies),
@@ -121,6 +123,19 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
     if (activeSession) sessionStorage.setItem(STORAGE_KEY, JSON.stringify(activeSession))
     else sessionStorage.removeItem(STORAGE_KEY)
   }, [activeSession, onSessionChange])
+
+  useEffect(() => {
+    if (session || !paper.trim()) return
+    const conditions = getKnownExamConditions(subject, paper)
+    if (!conditions) return
+    const key = `${subject.trim().toLowerCase()}\u0000${paper.trim().toLowerCase()}`
+    if (lastAutofilledKey.current === key) return
+    lastAutofilledKey.current = key
+    setReadingMinutes(conditions.readingMinutes)
+    setWritingMinutes(conditions.writingMinutes)
+    setMarks(conditions.marks)
+    setRawMax(conditions.marks)
+  }, [paper, session, subject])
 
   function saveSession(next: ExamTimerSession | undefined) {
     if (next) sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next))

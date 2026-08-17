@@ -23,7 +23,7 @@ export function createChatGPTAuth() {
     responsesProxy: {
       allowedModels: (model) => model.startsWith("gpt-5"),
       maxRequestBytes: 4_400_000,
-      rateLimit: { limit: 10, windowMs: 60_000, store: rateLimitStore },
+      rateLimit: { limit: 20, windowMs: 60_000, store: rateLimitStore },
     },
   })
 }

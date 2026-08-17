@@ -12,6 +12,12 @@ export const DEFAULT_AI_SETTINGS: AISettings = {
   reasoningEffort: "medium",
 }
 
+export function supportsStreamedAnalysis(model: string) {
+  return model !== "auto"
+    && model !== "codex-auto-review"
+    && !/(?:^|-)pro(?:-|$)/.test(model)
+}
+
 const STORAGE_KEY = "examtrack:ai-settings:v1"
 
 export function parseAISettings(value: string | null): AISettings {

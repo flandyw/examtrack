@@ -88,6 +88,32 @@ describe("next exam suggestions", () => {
     })
   })
 
+  test("uses the current VCAA paper marks and timed conditions across the first subject groups", () => {
+    const conditions = [
+      ["Biology", "Exam", 15, 150, 120],
+      ["Chemistry", "Exam", 15, 150, 120],
+      ["Environmental Science", "Exam", 15, 120, 120],
+      ["Physics", "Exam", 15, 150, 120],
+      ["Psychology", "Exam", 15, 150, 120],
+      ["Foundation Mathematics", "Exam", 15, 120, 80],
+      ["General Mathematics", "Exam 1", 15, 90, 40],
+      ["General Mathematics", "Exam 2", 15, 90, 60],
+      ["Mathematical Methods", "Exam 1", 15, 60, 40],
+      ["Mathematical Methods", "Exam 2", 15, 120, 80],
+      ["Specialist Mathematics", "Exam 1", 15, 60, 40],
+      ["Specialist Mathematics", "Exam 2", 15, 120, 80],
+      ["English", "Exam", 15, 180, 60],
+      ["English as an Additional Language (EAL)", "Exam", 15, 180, 60],
+      ["English Language", "Exam", 15, 120, 75],
+      ["Literature", "Exam", 15, 120, 40],
+      ["Physical Education", "Exam", 15, 120, 110],
+    ] as const
+
+    for (const [subject, paper, readingMinutes, writingMinutes, marks] of conditions) {
+      expect(getKnownExamConditions(subject, paper)).toEqual({ readingMinutes, writingMinutes, marks })
+    }
+  })
+
   test("continues the latest subject into the next exam years", () => {
     expect(buildExamSuggestions([attempt()], references, ["Mathematical Methods"])).toEqual([
       expect.objectContaining({ examYear: 2012, paper: "Exam 1" }),

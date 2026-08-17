@@ -1,7 +1,7 @@
 import { createChatGPTProxyProvider } from "@opencoredev/loginwithchatgpt-ai"
 import { jsonSchema, Output, streamText } from "ai"
 import { MISTAKE_CATEGORIES, type AlternativeMistakeCard, type ExamAttempt, type Mistake, type MistakeCategory, type MistakeInsights } from "@/lib/exam-data"
-import { loadAISettings } from "@/lib/ai-settings"
+import { loadAISettings, supportsStreamedAnalysis } from "@/lib/ai-settings"
 import { findVcaaExamForAttempt, type VcaaStudyResources } from "@/lib/vcaa-resources"
 
 const MAX_IMAGE_BYTES = 3 * 1024 * 1024
@@ -28,6 +28,8 @@ export type ChatGPTProgress = {
   tokens: number
   estimated: boolean
   reasoning: boolean
+  itemIndex?: number
+  itemCount?: number
 }
 
 type ProgressChunk = {
@@ -67,9 +69,10 @@ export function createChatGPTProgressHandler(onProgress?: (progress: ChatGPTProg
   }
 }
 
-export function formatChatGPTProgress({ phase, tokens, estimated, reasoning }: ChatGPTProgress) {
+export function formatChatGPTProgress({ phase, tokens, estimated, reasoning, itemIndex, itemCount }: ChatGPTProgress) {
   const status = phase === "connecting" ? "Connecting to ChatGPT" : phase === "thinking" ? "ChatGPT is thinking" : phase === "writing" ? "ChatGPT is writing" : "ChatGPT finished"
-  return `${status} · ${estimated && tokens ? "~" : ""}${tokens} streamed tokens${reasoning ? " · reasoning detected" : ""}`
+  const item = itemIndex && itemCount ? `Question ${itemIndex} of ${itemCount} · ` : ""
+  return `${item}${status} · ${estimated && tokens ? "~" : ""}${tokens} streamed tokens${reasoning ? " · reasoning detected" : ""}`
 }
 
 export function validateMistakeImage(file: Pick<File, "size" | "type">): string | null {
@@ -101,8 +104,42 @@ export function validateMistakeBatchImages(files: Pick<File, "size" | "type">[])
 }
 
 export function selectChatGPTModel(models: string[], preferredModel = "auto"): string | null {
-  if (preferredModel !== "auto" && models.includes(preferredModel)) return preferredModel
-  return models[0] ?? null
+  const supportedModels = models.filter(supportsStreamedAnalysis)
+  if (preferredModel !== "auto" && supportedModels.includes(preferredModel)) return preferredModel
+  return supportedModels[0] ?? null
+}
+
+function errorStatus(error: unknown): number | undefined {
+  if (!error || typeof error !== "object") return undefined
+  const value = error as Record<string, unknown>
+  return typeof value.statusCode === "number" ? value.statusCode : typeof value.status === "number" ? value.status : undefined
+}
+
+function errorText(error: unknown): string {
+  if (typeof error === "string") return error
+  if (!error || typeof error !== "object") return ""
+  const value = error as Record<string, unknown>
+  const parts = [value.message, value.responseBody, value.detail, value.data, value.cause]
+  return parts.map((part) => {
+    if (typeof part === "string") return part
+    if (part && typeof part === "object") {
+      try { return JSON.stringify(part) } catch { return "" }
+    }
+    return ""
+  }).filter(Boolean).join(" ")
+}
+
+export function formatMistakeAIError(error: unknown) {
+  const status = errorStatus(error)
+  const detail = errorText(error)
+  const normalized = detail.toLowerCase()
+  if (status === 401 || normalized.includes("not_authenticated")) return "Connect ChatGPT in Settings first."
+  if (status === 413 || normalized.includes("responses_request_too_large")) return "This image is too large to send to ChatGPT. Choose a smaller image and try again."
+  if (status === 429) return "ChatGPT is receiving too many requests. Wait a minute, then try again."
+  if (normalized.includes("stream") && normalized.includes("not support")) return "The selected ChatGPT model does not support streamed analysis. Choose another model in Settings."
+  if (normalized.includes("no output generated")) return "ChatGPT did not return an analysis. Try again or choose another model in Settings."
+  if (error instanceof Error && error.message) return error.message
+  return "Could not analyse this image."
 }
 
 async function getChatGPTModel() {
@@ -118,7 +155,7 @@ async function getChatGPTModel() {
   }
   const settings = loadAISettings()
   const model = selectChatGPTModel(models, settings.model)
-  if (!model) throw new Error("This ChatGPT account has no available model.")
+  if (!model) throw new Error(models.length ? "This ChatGPT account has no model that supports streamed analysis." : "This ChatGPT account has no available model.")
   return { chatgpt, model, settings }
 }
 
@@ -315,12 +352,14 @@ export async function analyseMistakeImages(
     image: await file.arrayBuffer(),
     mediaType: file.type,
   })))
+  let streamError: unknown
   const result = streamText({
     model: chatgpt(model),
     output: Output.object({ schema: mistakeSchema, name: "mistake_log" }),
     maxOutputTokens: 1200,
     headers: { "x-login-with-chatgpt-reasoning-effort": settings.reasoningEffort },
     onChunk: createChatGPTProgressHandler(onProgress),
+    onError: ({ error }) => { streamError = error },
     messages: [{
       role: "user",
       content: [
@@ -334,7 +373,13 @@ export async function analyseMistakeImages(
     }],
   })
 
-  const draft = await result.output
+  let draft: MistakeDraft
+  try {
+    draft = await result.output
+  } catch (error) {
+    const cause = streamError ?? error
+    throw new Error(formatMistakeAIError(cause), { cause })
+  }
   if (!draft.question.trim() || !draft.questionText.trim() || !draft.explanation.trim() || !draft.correction.trim()) {
     throw new Error("ChatGPT could not read enough of the supplied context to fill the mistake.")
   }
@@ -383,69 +428,16 @@ export async function analyseMistakeImageBatch(
 ): Promise<MistakeDraft[]> {
   const validationError = validateMistakeBatchImages(files)
   if (validationError) throw new Error(validationError)
-  const selectedAttempt = attempts.find((attempt) => attempt.id === selectedAttemptId)
-  if (!selectedAttempt) throw new Error("Choose the exam first so ChatGPT can use the correct paper.")
-  const examPdf = findVcaaExamForAttempt(selectedAttempt, studies)
-  if (selectedAttempt.provider.trim().toLowerCase() === "vcaa" && !examPdf) {
-    throw new Error("This attempt could not be matched to an exam PDF in the VCAA library.")
+  const drafts: MistakeDraft[] = []
+  for (const [index, file] of files.entries()) {
+    try {
+      const draft = await analyseMistakeImages([file], attempts, selectedAttemptId, studies, (progress) => {
+        onProgress?.({ ...progress, itemIndex: index + 1, itemCount: files.length })
+      })
+      drafts.push({ ...draft, attemptId: selectedAttemptId })
+    } catch (error) {
+      throw new Error(`Question ${index + 1}: ${formatMistakeAIError(error)}`, { cause: error })
+    }
   }
-
-  onProgress?.({ phase: "connecting", tokens: 0, estimated: true, reasoning: false })
-  const { chatgpt, model, settings } = await getChatGPTModel()
-  const draftProperties = {
-    attemptId: { type: "string", enum: [selectedAttempt.id] },
-    question: { type: "string" },
-    questionText: { type: "string" },
-    category: { type: "string", enum: [...MISTAKE_CATEGORIES] },
-    explanation: { type: "string" },
-    correction: { type: "string" },
-    areaOfStudy: { type: "string" },
-    criterion: { type: "string" },
-    totalMarks: { type: "number", exclusiveMinimum: 0 },
-    marksLost: { type: "number", minimum: 0 },
-  } as const
-  const schema = jsonSchema<{ mistakes: IndexedMistakeDraft[] }>({
-    type: "object",
-    additionalProperties: false,
-    required: ["mistakes"],
-    properties: {
-      mistakes: {
-        type: "array",
-        minItems: files.length,
-        maxItems: files.length,
-        items: {
-          type: "object",
-          additionalProperties: false,
-          required: ["imageIndex", "attemptId", "question", "questionText", "category", "explanation", "correction", "areaOfStudy", "criterion", "totalMarks", "marksLost"],
-          properties: {
-            imageIndex: { type: "integer", minimum: 0, maximum: files.length - 1 },
-            ...draftProperties,
-          },
-        },
-      },
-    },
-  })
-  const imageParts = (await Promise.all(files.map(async (file, imageIndex) => ([
-    { type: "text" as const, text: `Separate question imageIndex ${imageIndex}:` },
-    { type: "image" as const, image: await file.arrayBuffer(), mediaType: file.type },
-  ])))).flat()
-  const result = streamText({
-    model: chatgpt(model),
-    output: Output.object({ schema, name: "mistake_batch" }),
-    maxOutputTokens: Math.max(1600, files.length * 1000),
-    headers: { "x-login-with-chatgpt-reasoning-effort": settings.reasoningEffort },
-    onChunk: createChatGPTProgressHandler(onProgress),
-    messages: [{
-      role: "user",
-      content: [
-        {
-          type: "text",
-          text: `Each attached image is a different question from the same logged exam. Create exactly one separate mistake draft per image, in attachment order, using zero-based imageIndex values. Never merge context, responses, annotations, or feedback across images. The selected exam is ${JSON.stringify(selectedAttempt)}. ${examPdf ? "Use the attached official VCAA exam PDF to restore cropped question context and confirm item labels and marks." : "No official exam PDF is available, so use only each individual image."} Make each questionText fully self-contained, keep explanations diagnostic and corrections actionable, and use Markdown with LaTeX only where appropriate. Infer totalMarks and marksLost from the paper, score, or annotations; marksLost must not exceed totalMarks. Use an empty string for an uncertain topic or criterion and 'Item unclear' for an unreadable label.`,
-        },
-        ...(examPdf ? [{ type: "file" as const, data: new URL(examPdf.url), mediaType: "application/pdf", filename: examPdf.label }] : []),
-        ...imageParts,
-      ],
-    }],
-  })
-  return orderMistakeBatchDrafts((await result.output).mistakes, files.length)
+  return drafts
 }
