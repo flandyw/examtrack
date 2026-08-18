@@ -40,6 +40,7 @@ export function StudyScorePredictor({
   const [subject, setSubject] = useState(subjects[0] ?? "")
   const [sacPercentile, setSacPercentile] = useState("")
   const [examWeight, setExamWeight] = useState(() => defaultExamWeight(subjects[0] ?? ""))
+  const [distributionYear, setDistributionYear] = useState("automatic")
   const [scalingYear, setScalingYear] = useState("combined")
 
   useEffect(() => {
@@ -49,8 +50,17 @@ export function StudyScorePredictor({
   useEffect(() => {
     setExamWeight(defaultExamWeight(subject))
     setSacPercentile("")
+    setDistributionYear("automatic")
     setScalingYear("combined")
   }, [subject])
+
+  const distributionYears = useMemo(
+    () => [...new Set(references
+      .filter((reference) => normaliseScalingStudyName(reference.studyName) === normaliseScalingStudyName(subject))
+      .map((reference) => reference.year))].toSorted((first, second) => second - first),
+    [references, subject],
+  )
+  const selectedDistributionYear = distributionYear === "automatic" ? null : Number(distributionYear)
 
   const parsedSac = sacPercentile.trim() === "" ? null : Number(sacPercentile)
   const prediction = useMemo(
@@ -60,8 +70,9 @@ export function StudyScorePredictor({
       references,
       sacPercentile: parsedSac !== null && Number.isFinite(parsedSac) ? parsedSac : null,
       examWeightPercent: examWeight,
+      distributionYear: selectedDistributionYear,
     }),
-    [data.attempts, examWeight, parsedSac, references, subject],
+    [data.attempts, examWeight, parsedSac, references, selectedDistributionYear, subject],
   )
   const studyScoreTrend = useMemo(
     () => buildStudyScoreTrend({
@@ -70,8 +81,9 @@ export function StudyScorePredictor({
       references,
       sacPercentile: parsedSac !== null && Number.isFinite(parsedSac) ? parsedSac : null,
       examWeightPercent: examWeight,
+      distributionYear: selectedDistributionYear,
     }),
-    [data.attempts, examWeight, parsedSac, references, subject],
+    [data.attempts, examWeight, parsedSac, references, selectedDistributionYear, subject],
   )
   const scalingYears = useMemo(
     () => [...new Set(scalingReferences
@@ -137,6 +149,20 @@ export function StudyScorePredictor({
                   <FieldDescription>
                     Enter your estimated statewide percentile after moderation. Leave blank to assume it matches your predicted exam percentile.
                   </FieldDescription>
+                </Field>
+
+                <Field>
+                  <FieldLabel htmlFor="distribution-year">Grade distribution</FieldLabel>
+                  <Select value={distributionYear} onValueChange={(value) => setDistributionYear(value ?? "automatic")}>
+                    <SelectTrigger id="distribution-year" className="w-full">
+                      <SelectValue>{distributionYear === "automatic" ? "Automatic" : distributionYear}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="automatic">Automatic (match exam year)</SelectItem>
+                      {distributionYears.map((year) => <SelectItem key={year} value={String(year)}>{year}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <FieldDescription>Choose a specific official year, or use the closest available distribution for each attempt.</FieldDescription>
                 </Field>
 
                 {usesMethodsWeighting(subject) ? (

@@ -27,6 +27,7 @@ import {
   type ReviewRating,
 } from "@/lib/exam-data"
 import { downloadMistakesPdf } from "@/lib/mistake-pdf"
+import { isTechSplitMathsSubject, matchesMathsExamFilter, type MathsExamFilter } from "@/lib/mistake-filters"
 import { buildRevisionPriorities, buildRevisionQueue, formatReviewInterval, getMistakeProgress, getMistakeQueueCounts } from "@/lib/mistake-review"
 import { findVcaaExamForAttempt, type VcaaStudyResources } from "@/lib/vcaa-resources"
 
@@ -301,6 +302,7 @@ function BrowseCard({ mistake, attempt, studies, onEdit, onToggleSuspend, onDele
 
 export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleSuspend, onDelete, onSaveInsights, onSaveAlternativeDeck }: MistakesPageProps) {
   const [subject, setSubject] = useState("all")
+  const [mathsExamFilter, setMathsExamFilter] = useState<MathsExamFilter>("all")
   const [tab, setTab] = useState<"study" | "alternative" | "browse">("study")
   const [search, setSearch] = useState("")
   const [browserFilter, setBrowserFilter] = useState<BrowserFilter>("all")
@@ -308,7 +310,14 @@ export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleS
   const attemptMap = useMemo(() => new Map(data.attempts.map((attempt) => [attempt.id, attempt])), [data.attempts])
   const subjects = useMemo(() => [...new Set(data.attempts.map((attempt) => attempt.subject))].toSorted(), [data.attempts])
   const activeSubject = subject === "all" || subjects.includes(subject) ? subject : "all"
-  const visibleMistakes = data.mistakes.filter((mistake) => activeSubject === "all" || attemptMap.get(mistake.attemptId)?.subject === activeSubject)
+  const mathsSubject = activeSubject !== "all" ? activeSubject : subjects.length === 1 ? subjects[0] : null
+  const showMathsExamFilter = mathsSubject !== null && isTechSplitMathsSubject(mathsSubject)
+  const activeMathsExamFilter = showMathsExamFilter ? mathsExamFilter : "all"
+  const visibleMistakes = data.mistakes.filter((mistake) => {
+    const attempt = attemptMap.get(mistake.attemptId)
+    const matchesSubject = activeSubject === "all" || attempt?.subject === activeSubject
+    return matchesSubject && matchesMathsExamFilter(attempt, activeMathsExamFilter)
+  })
   const dueIds = new Set(getDueMistakes(visibleMistakes).map((mistake) => mistake.id))
   const counts = getMistakeQueueCounts(visibleMistakes)
   const progress = getMistakeProgress(visibleMistakes)
@@ -359,10 +368,23 @@ export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleS
                 ? "Suspended cards are excluded from progress."
                 : "No mistake cards have been logged for this subject yet."}</CardDescription>
           </div>
-          {subjects.length > 1 ? <Select value={activeSubject} onValueChange={(value) => setSubject(value ?? "all")}>
-            <SelectTrigger aria-label="Filter mistake cards by subject"><SelectValue>{activeSubject === "all" ? "All subjects" : activeSubject}</SelectValue></SelectTrigger>
-            <SelectContent><SelectItem value="all">All subjects</SelectItem>{subjects.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent>
-          </Select> : null}
+          <div className="flex flex-col gap-2 sm:flex-row">
+            {subjects.length > 1 ? <Select value={activeSubject} onValueChange={(value) => {
+              setSubject(value ?? "all")
+              setMathsExamFilter("all")
+            }}>
+              <SelectTrigger aria-label="Filter mistake cards by subject"><SelectValue>{activeSubject === "all" ? "All subjects" : activeSubject}</SelectValue></SelectTrigger>
+              <SelectContent><SelectItem value="all">All subjects</SelectItem>{subjects.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent>
+            </Select> : null}
+            {showMathsExamFilter ? <Select value={activeMathsExamFilter} onValueChange={(value) => setMathsExamFilter((value ?? "all") as MathsExamFilter)}>
+              <SelectTrigger aria-label="Filter maths mistake cards by exam"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All exams</SelectItem>
+                <SelectItem value="exam-1">Exam 1 · Tech-free</SelectItem>
+                <SelectItem value="exam-2">Exam 2 · Tech-active</SelectItem>
+              </SelectContent>
+            </Select> : null}
+          </div>
         </CardHeader>
         <CardContent className="grid gap-5">
           <div className="grid gap-2">
@@ -392,8 +414,8 @@ export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleS
           <TabsTrigger value="alternative">Alternatives ({alternativeCount})</TabsTrigger>
           <TabsTrigger value="browse">Browse ({visibleMistakes.length})</TabsTrigger>
         </TabsList>
-        <TabsContent value="study" className="mt-4"><StudyQueue key={activeSubject} mistakes={visibleMistakes} attempts={data.attempts} studies={studies} onReview={onReview} onBrowse={() => setTab("browse")} /></TabsContent>
-        <TabsContent value="alternative" className="mt-4"><MistakeAlternativeDeck key={activeSubject} mistakes={visibleMistakes} allMistakes={data.mistakes} attempts={data.attempts} deck={data.alternativeMistakeDeck} onSave={onSaveAlternativeDeck} /></TabsContent>
+        <TabsContent value="study" className="mt-4"><StudyQueue key={`${activeSubject}:${activeMathsExamFilter}`} mistakes={visibleMistakes} attempts={data.attempts} studies={studies} onReview={onReview} onBrowse={() => setTab("browse")} /></TabsContent>
+        <TabsContent value="alternative" className="mt-4"><MistakeAlternativeDeck key={`${activeSubject}:${activeMathsExamFilter}`} mistakes={visibleMistakes} allMistakes={data.mistakes} attempts={data.attempts} deck={data.alternativeMistakeDeck} onSave={onSaveAlternativeDeck} /></TabsContent>
         <TabsContent value="browse" className="mt-4">
           <div className="grid gap-4">
             <div className="flex flex-col gap-2 sm:flex-row">

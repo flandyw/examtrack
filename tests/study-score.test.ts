@@ -175,6 +175,23 @@ describe("study score prediction", () => {
     expect(evidence.get("2007-2")).toMatchObject({ referenceYear: 2007, exactReferenceYear: true })
   })
 
+  test("uses the user-selected distribution year for every compatible attempt", () => {
+    const selectedYearReference = {
+      ...reference,
+      id: "METHODS:2024:GA-2",
+      year: 2024,
+    }
+    const prediction = predictStudyScore({
+      subject: "Mathematical Methods",
+      attempts: [attempt("one", 32, "2026-07-01", { examYear: 2025, referenceId: reference.id })],
+      references: [reference, selectedYearReference],
+      distributionYear: 2024,
+    })
+
+    expect(prediction?.evidence).toHaveLength(1)
+    expect(prediction?.evidence[0]).toMatchObject({ referenceYear: 2024, exactReferenceYear: false })
+  })
+
   test("keeps generic and embellished paper labels linked to the intended paper", () => {
     const generic = predictStudyScore({
       subject: "Mathematical Methods",
