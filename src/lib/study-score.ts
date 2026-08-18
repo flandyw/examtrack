@@ -105,15 +105,18 @@ function sameStudy(first: string, second: string) {
   return normaliseScalingStudyName(first) === normaliseScalingStudyName(second)
 }
 
-function compatibleReferences(attempt: ExamAttempt, references: AssessmentReference[]) {
+function compatibleReferences(attempt: ExamAttempt, references: AssessmentReference[], distributionYear?: number | null) {
   const subjectReferences = references.filter((reference) => sameStudy(reference.studyName, attempt.subject))
+  const availableReferences = distributionYear == null
+    ? subjectReferences
+    : subjectReferences.filter((reference) => reference.year === distributionYear)
 
   const explicitlyLinked = attempt.referenceId
-    ? subjectReferences.find((reference) => reference.id === attempt.referenceId)
+    ? availableReferences.find((reference) => reference.id === attempt.referenceId)
     : undefined
 
   const paper = normaliseComparisonName(attempt.paper)
-  const paperMatches = subjectReferences.filter(
+  const paperMatches = availableReferences.filter(
     (reference) => normaliseComparisonName(reference.name) === paper,
   )
   if (paperMatches.length) return paperMatches
@@ -122,7 +125,7 @@ function compatibleReferences(attempt: ExamAttempt, references: AssessmentRefere
   // words (for example, "Exam 1 - calculator allowed").
   const number = paperNumber(attempt.paper)
   if (number !== null) {
-    const numberedMatches = subjectReferences.filter((reference) => paperNumber(reference.name) === number)
+    const numberedMatches = availableReferences.filter((reference) => paperNumber(reference.name) === number)
     if (numberedMatches.length) return numberedMatches
   }
 
@@ -131,14 +134,14 @@ function compatibleReferences(attempt: ExamAttempt, references: AssessmentRefere
   if (explicitlyLinked) return [explicitlyLinked]
 
   const countByYear = new Map<number, number>()
-  for (const reference of subjectReferences) {
+  for (const reference of availableReferences) {
     countByYear.set(reference.year, (countByYear.get(reference.year) ?? 0) + 1)
   }
-  return subjectReferences.filter((reference) => countByYear.get(reference.year) === 1)
+  return availableReferences.filter((reference) => countByYear.get(reference.year) === 1)
 }
 
-function findStudyScoreReference(attempt: ExamAttempt, references: AssessmentReference[]) {
-  const candidates = compatibleReferences(attempt, references)
+function findStudyScoreReference(attempt: ExamAttempt, references: AssessmentReference[], distributionYear?: number | null) {
+  const candidates = compatibleReferences(attempt, references, distributionYear)
   if (candidates.length === 0) return undefined
 
   const exact = candidates.find((reference) => reference.year === attempt.examYear)
@@ -191,16 +194,18 @@ export function predictStudyScore({
   references,
   sacPercentile,
   examWeightPercent = defaultExamWeight(subject),
+  distributionYear,
 }: {
   subject: string
   attempts: ExamAttempt[]
   references: AssessmentReference[]
   sacPercentile?: number | null
   examWeightPercent?: number
+  distributionYear?: number | null
 }): StudyScorePrediction | null {
   const subjectAttempts = attempts.filter((attempt) => sameStudy(attempt.subject, subject))
   const linked = subjectAttempts.flatMap((attempt) => {
-    const reference = findStudyScoreReference(attempt, references)
+    const reference = findStudyScoreReference(attempt, references, distributionYear)
     if (!reference) return []
     const percentile = analyseAttempt(attempt, reference).percentile
     return percentile === null ? [] : [{
@@ -302,12 +307,14 @@ export function buildStudyScoreTrend({
   references,
   sacPercentile,
   examWeightPercent = defaultExamWeight(subject),
+  distributionYear,
 }: {
   subject: string
   attempts: ExamAttempt[]
   references: AssessmentReference[]
   sacPercentile?: number | null
   examWeightPercent?: number
+  distributionYear?: number | null
 }): StudyScoreTrendPoint[] {
   const orderedAttempts = attempts
     .filter((attempt) => sameStudy(attempt.subject, subject))
@@ -320,6 +327,7 @@ export function buildStudyScoreTrend({
       references,
       sacPercentile,
       examWeightPercent,
+      distributionYear,
     })
     const evidence = prediction?.evidence.find((item) => item.attempt.id === attempt.id)
     if (!prediction || !evidence) return []
