@@ -384,8 +384,9 @@ export function SettingsPage({ sync, focal, subjects, selectedSubjects, provider
                       <button
                         key={model}
                         type="button"
+                        aria-pressed={selected}
                         className="h-12 truncate rounded-md px-2 text-left text-sm font-medium outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
-                        style={{ color: selected ? accent : undefined }}
+                        style={{ color: selected ? accent : undefined, fontWeight: selected ? 700 : undefined }}
                         onClick={() => update({ model, reasoningEffort: selectedEffort })}
                       >
                         {model === "auto" ? "Automatic" : model}

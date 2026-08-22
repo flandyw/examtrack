@@ -1,6 +1,7 @@
-import { useMemo, useState, type FormEvent } from "react"
+import { useMemo, useRef, useState, type FormEvent } from "react"
 import { Button } from "@/components/ui/button"
 import { SubjectCombobox } from "@/components/subject-combobox"
+import { DiscardChangesDialog } from "@/components/discard-changes-dialog"
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -77,6 +78,23 @@ export function ExamSheet({ open, references, attempts, studies, preferredSubjec
   const [performanceContext, setPerformanceContext] = useState<PerformanceContext>(initialAttempt?.performanceContext ?? {})
   const [questionResults, setQuestionResults] = useState<QuestionResult[]>(initialAttempt?.questionResults ?? [])
   const [error, setError] = useState<string | null>(null)
+  const initialSnapshot = useRef(JSON.stringify({
+    subject, provider, examYear, paper, completedAt, rawScore, rawMax,
+    comment, performanceContext, questionResults,
+  }))
+  const dirty = JSON.stringify({
+    subject, provider, examYear, paper, completedAt, rawScore, rawMax,
+    comment, performanceContext, questionResults,
+  }) !== initialSnapshot.current
+  const [confirmingClose, setConfirmingClose] = useState(false)
+
+  function handleOpenChange(next: boolean) {
+    if (!next && dirty) {
+      setConfirmingClose(true)
+      return
+    }
+    onOpenChange(next)
+  }
   const suggestions = useMemo(
     () => initialAttempt ? [] : buildExamSuggestions(attempts, references, preferredSubjects, 4, studies),
     [attempts, initialAttempt, preferredSubjects, references, studies],
@@ -161,7 +179,7 @@ export function ExamSheet({ open, references, attempts, studies, preferredSubjec
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet open={open} onOpenChange={handleOpenChange}>
       <SheetContent resizable className="w-full">
         <SheetHeader>
           <SheetTitle>{initialAttempt ? "Edit practice exam" : "Log practice exam"}</SheetTitle>
@@ -243,6 +261,11 @@ export function ExamSheet({ open, references, attempts, studies, preferredSubjec
           <Button type="submit" form="exam-form">{initialAttempt ? "Save changes" : "Save exam"}</Button>
         </SheetFooter>
       </SheetContent>
+      <DiscardChangesDialog
+        open={confirmingClose}
+        onKeep={() => setConfirmingClose(false)}
+        onDiscard={() => { setConfirmingClose(false); onOpenChange(false) }}
+      />
     </Sheet>
   )
 }

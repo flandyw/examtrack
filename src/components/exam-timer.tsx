@@ -186,7 +186,7 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
   }
 
   function reset() {
-    if (timer?.phase !== "overtime" && !window.confirm("Discard this timed exam and return to setup?")) return
+    if (!window.confirm("Discard this timed exam and return to setup?")) return
     if (session?.focal) void publishFocalTimer(session.focal, "delete")
     saveSession(undefined)
     setMarkingOpen(false)

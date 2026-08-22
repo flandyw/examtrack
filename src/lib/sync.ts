@@ -9,6 +9,10 @@ import { isExamTimerSession, isSacTimerSession, mergeTimerSession } from "@/lib/
 const TOMBSTONE_KEY = "examtrack:sync:tombstones:v1"
 const OWNER_KEY = "examtrack:sync:owner:v1"
 
+function ownerBackupKey(owner: string) {
+  return `examtrack:sync:owner-backup:v1:${owner}`
+}
+
 type Collection = "attempts" | "mistakes"
 type Tombstones = Record<Collection, Record<string, string>>
 type RemoteRow = {
@@ -271,6 +275,13 @@ export function useSupabaseSync(data: AppData, setData: Dispatch<SetStateAction<
       if (current) {
         const owner = localStorage.getItem(OWNER_KEY)
         if (owner && owner !== current.id) {
+          // Preserve the outgoing account's data before switching so nothing
+          // is lost if the incoming remote fetch fails.
+          try {
+            localStorage.setItem(ownerBackupKey(owner), JSON.stringify(previous.current))
+          } catch {
+            // Storage full or unavailable — proceed without a backup.
+          }
           localStorage.removeItem(TOMBSTONE_KEY)
           previous.current = EMPTY_APP_DATA
           setData(EMPTY_APP_DATA)
@@ -279,7 +290,9 @@ export function useSupabaseSync(data: AppData, setData: Dispatch<SetStateAction<
       }
       setUser(current)
     }
-    supabase.auth.getUser().then(({ data: { user: current } }) => acceptUser(current))
+    supabase.auth.getUser()
+      .then(({ data: { user: current } }) => acceptUser(current))
+      .catch(() => setStatus("error"))
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       acceptUser(session?.user ?? null)
       setStatus(session ? "syncing" : "signed-out")

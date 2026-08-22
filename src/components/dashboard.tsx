@@ -4,12 +4,14 @@ import {
   ArrowRight,
   ArrowUpRight,
   BookOpenCheck,
+  FileDown,
   FilePlus2,
   NotebookPen,
   Plus,
   Target,
   type LucideIcon,
 } from "lucide-react"
+import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -36,6 +38,7 @@ import { PerformanceContextInsights } from "@/components/performance-context-ins
 import { ExamTable } from "@/components/exam-table"
 import { getExamTarget } from "@/lib/exam-target"
 import { getAttemptPerformance, weightedPerformanceAverage, type ExamDifficultySettings } from "@/lib/exam-difficulty"
+import { openProgressReport } from "@/lib/progress-report"
 
 const PerformanceTrendChart = lazy(() =>
   import("@/components/performance-trend-chart").then((module) => ({ default: module.PerformanceTrendChart })),
@@ -543,6 +546,14 @@ export function Dashboard(props: DashboardProps) {
     [data, onLogExam, onLogMistakeForLatest, onOpenMistakes, onOpenLibrary],
   )
 
+  function exportReport() {
+    try {
+      openProgressReport(data, references, data.examDifficulty)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not open the progress report.")
+    }
+  }
+
   const deadlineSection = timetable ? (
     <UpcomingExamsCard
       entries={timetable.exams}
@@ -594,6 +605,10 @@ export function Dashboard(props: DashboardProps) {
         title="Dashboard"
         description="Your practice exam results and the mistakes worth revisiting."
       >
+        <Button variant="outline" onClick={exportReport}>
+          <FileDown />
+          Export report
+        </Button>
         <Button onClick={onLogExam}>
           <Plus />
           Log exam

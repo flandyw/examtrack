@@ -32,6 +32,7 @@ import { buildRevisionPriorities, buildRevisionQueue, formatReviewInterval, getM
 import { findVcaaExamForAttempt, type VcaaStudyResources } from "@/lib/vcaa-resources"
 
 type BrowserFilter = "all" | "due" | "new" | "learning" | "review" | "mature" | "suspended"
+type PageTab = "study" | "schedule" | "alternative" | "browse"
 
 type MistakesPageProps = {
   data: AppData
@@ -303,7 +304,7 @@ function BrowseCard({ mistake, attempt, studies, onEdit, onToggleSuspend, onDele
 export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleSuspend, onDelete, onSaveInsights, onSaveAlternativeDeck }: MistakesPageProps) {
   const [subject, setSubject] = useState("all")
   const [mathsExamFilter, setMathsExamFilter] = useState<MathsExamFilter>("all")
-  const [tab, setTab] = useState<"study" | "alternative" | "browse">("study")
+  const [tab, setTab] = useState<PageTab>("study")
   const [search, setSearch] = useState("")
   const [browserFilter, setBrowserFilter] = useState<BrowserFilter>("all")
   const [exporting, setExporting] = useState(false)
@@ -313,31 +314,67 @@ export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleS
   const mathsSubject = activeSubject !== "all" ? activeSubject : subjects.length === 1 ? subjects[0] : null
   const showMathsExamFilter = mathsSubject !== null && isTechSplitMathsSubject(mathsSubject)
   const activeMathsExamFilter = showMathsExamFilter ? mathsExamFilter : "all"
-  const visibleMistakes = data.mistakes.filter((mistake) => {
+  const visibleMistakes = useMemo(() => data.mistakes.filter((mistake) => {
     const attempt = attemptMap.get(mistake.attemptId)
     const matchesSubject = activeSubject === "all" || attempt?.subject === activeSubject
     return matchesSubject && matchesMathsExamFilter(attempt, activeMathsExamFilter)
-  })
-  const dueIds = new Set(getDueMistakes(visibleMistakes).map((mistake) => mistake.id))
-  const counts = getMistakeQueueCounts(visibleMistakes)
-  const progress = getMistakeProgress(visibleMistakes)
-  const topPriority = buildRevisionPriorities(visibleMistakes).find((item) => item.unresolved > 0)
-  const worksheetMistakes = buildRevisionQueue(visibleMistakes)
-  const alternativeCount = data.alternativeMistakeDeck?.cards.filter((card) => visibleMistakes.some((mistake) => mistake.id === card.sourceMistakeId)).length ?? 0
-  const normalizedSearch = search.trim().toLocaleLowerCase()
-  const browsedMistakes = visibleMistakes.filter((mistake) => {
-    const schedule = getMistakeSchedule(mistake)
-    const attempt = attemptMap.get(mistake.attemptId)
-    const matchesSearch = !normalizedSearch || [mistake.question, mistake.questionText, mistake.explanation, mistake.correction, mistake.areaOfStudy, mistake.criterion, attempt?.title, attempt?.subject]
-      .some((value) => value?.toLocaleLowerCase().includes(normalizedSearch))
-    if (!matchesSearch) return false
-    if (browserFilter === "all") return true
-    if (browserFilter === "due") return dueIds.has(mistake.id)
-    if (browserFilter === "suspended") return Boolean(mistake.suspended)
-    if (browserFilter === "mature") return schedule.resolved && !mistake.suspended
-    if (browserFilter === "learning") return !mistake.suspended && (schedule.state === "learning" || schedule.state === "relearning")
-    return !mistake.suspended && schedule.state === browserFilter
-  }).toSorted((first, second) => getMistakeSchedule(first).dueAt.localeCompare(getMistakeSchedule(second).dueAt))
+  }), [data.mistakes, attemptMap, activeSubject, activeMathsExamFilter])
+  const dueIds = useMemo(() => new Set(getDueMistakes(visibleMistakes).map((mistake) => mistake.id)), [visibleMistakes])
+  const counts = useMemo(() => getMistakeQueueCounts(visibleMistakes), [visibleMistakes])
+  const progress = useMemo(() => getMistakeProgress(visibleMistakes), [visibleMistakes])
+  const topPriority = useMemo(() => buildRevisionPriorities(visibleMistakes).find((item) => item.unresolved > 0), [visibleMistakes])
+  const worksheetMistakes = useMemo(() => buildRevisionQueue(visibleMistakes), [visibleMistakes])
+  const alternativeCount = useMemo(() => data.alternativeMistakeDeck?.cards.filter((card) => visibleMistakes.some((mistake) => mistake.id === card.sourceMistakeId)).length ?? 0, [data.alternativeMistakeDeck, visibleMistakes])
+  const browsedMistakes = useMemo(() => {
+    const normalizedSearch = search.trim().toLocaleLowerCase()
+    const schedules = new Map(visibleMistakes.map((mistake) => [mistake.id, getMistakeSchedule(mistake)]))
+    return visibleMistakes.filter((mistake) => {
+      const schedule = schedules.get(mistake.id)
+      const attempt = attemptMap.get(mistake.attemptId)
+      const matchesSearch = !normalizedSearch || [mistake.question, mistake.questionText, mistake.explanation, mistake.correction, mistake.areaOfStudy, mistake.criterion, attempt?.title, attempt?.subject]
+        .some((value) => value?.toLocaleLowerCase().includes(normalizedSearch))
+      if (!matchesSearch || !schedule) return false
+      if (browserFilter === "all") return true
+      if (browserFilter === "due") return dueIds.has(mistake.id)
+      if (browserFilter === "suspended") return Boolean(mistake.suspended)
+      if (browserFilter === "mature") return schedule.resolved && !mistake.suspended
+      if (browserFilter === "learning") return !mistake.suspended && (schedule.state === "learning" || schedule.state === "relearning")
+      return !mistake.suspended && schedule.state === browserFilter
+    }).toSorted((first, second) => (schedules.get(first.id)?.dueAt ?? "").localeCompare(schedules.get(second.id)?.dueAt ?? ""))
+  }, [visibleMistakes, attemptMap, dueIds, search, browserFilter])
+  const scheduleGroups = useMemo(() => {
+    const startOfToday = new Date()
+    startOfToday.setHours(0, 0, 0, 0)
+    const dayMs = 24 * 60 * 60 * 1000
+    const upcoming = visibleMistakes
+      .filter((mistake) => !mistake.suspended)
+      .map((mistake) => ({ mistake, schedule: getMistakeSchedule(mistake) }))
+      .toSorted((first, second) => first.schedule.dueAt.localeCompare(second.schedule.dueAt))
+    const groups = new Map<string, { key: string; label: string; overdue: boolean; items: typeof upcoming }>()
+    for (const entry of upcoming) {
+      const dueDate = new Date(entry.schedule.dueAt)
+      const dayIndex = Math.floor((new Date(dueDate).setHours(0, 0, 0, 0) - startOfToday.getTime()) / dayMs)
+      const key = dayIndex <= -1 ? "overdue" : dayIndex === 0 ? "today" : dayIndex === 1 ? "tomorrow" : `day-${dayIndex}`
+      let group = groups.get(key)
+      if (!group) {
+        const label = dayIndex <= -1
+          ? "Overdue"
+          : dayIndex === 0
+            ? "Today"
+            : dayIndex === 1
+              ? "Tomorrow"
+              : dueDate.toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" })
+        group = { key, label, overdue: dayIndex < 0, items: [] }
+        groups.set(key, group)
+      }
+      group.items.push(entry)
+    }
+    return [...groups.values()]
+  }, [visibleMistakes])
+  const dueThisWeekCount = useMemo(() => {
+    const horizon = Date.now() + 7 * 24 * 60 * 60 * 1000
+    return visibleMistakes.filter((mistake) => !mistake.suspended && new Date(getMistakeSchedule(mistake).dueAt).getTime() <= horizon).length
+  }, [visibleMistakes])
 
   async function exportWorksheet() {
     setExporting(true)
@@ -411,10 +448,48 @@ export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleS
       <Tabs value={tab} onValueChange={(value) => setTab(value as "study" | "alternative" | "browse")}>
         <TabsList>
           <TabsTrigger value="study">Study ({counts.due})</TabsTrigger>
+          <TabsTrigger value="schedule">Schedule</TabsTrigger>
           <TabsTrigger value="alternative">Alternatives ({alternativeCount})</TabsTrigger>
           <TabsTrigger value="browse">Browse ({visibleMistakes.length})</TabsTrigger>
         </TabsList>
         <TabsContent value="study" className="mt-4"><StudyQueue key={`${activeSubject}:${activeMathsExamFilter}`} mistakes={visibleMistakes} attempts={data.attempts} studies={studies} onReview={onReview} onBrowse={() => setTab("browse")} /></TabsContent>
+        <TabsContent value="schedule" className="mt-4">
+          {scheduleGroups.length ? (
+            <div className="grid gap-6">
+              <p className="text-sm text-muted-foreground">{dueThisWeekCount
+                ? `${dueThisWeekCount} card${dueThisWeekCount === 1 ? "" : "s"} to review in the next 7 days.`
+                : "Nothing scheduled for the next week — log mistakes after your next timed paper."}</p>
+              {scheduleGroups.map((group) => (
+                <section key={group.key} className="grid gap-2" aria-label={`Reviews due ${group.label.toLowerCase()}`}>
+                  <div className="flex items-center gap-2">
+                    <h3 className={group.overdue ? "text-sm font-semibold text-destructive" : "text-sm font-semibold"}>{group.label}</h3>
+                    <Badge variant={group.overdue ? "destructive" : "secondary"}>{group.items.length}</Badge>
+                  </div>
+                  <div className="grid gap-2">
+                    {group.items.map(({ mistake }) => {
+                      const attempt = attemptMap.get(mistake.attemptId)
+                      return (
+                        <button
+                          key={mistake.id}
+                          type="button"
+                          onClick={() => onEdit(mistake)}
+                          className="flex flex-col gap-0.5 rounded-lg border bg-card px-3 py-2.5 text-left outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+                        >
+                          <span className="truncate text-sm font-medium">{mistake.question}</span>
+                          <span className="truncate text-xs text-muted-foreground">
+                            {[attempt?.subject, attempt?.title, stateLabel(getMistakeSchedule(mistake).state, Boolean(mistake.resolved))].filter(Boolean).join(" · ")}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </section>
+              ))}
+            </div>
+          ) : (
+            <Empty className="min-h-64 border"><EmptyHeader><EmptyMedia variant="icon"><NotebookPen /></EmptyMedia><EmptyTitle>No reviews scheduled</EmptyTitle><EmptyDescription>Cards appear here once mistakes are logged and reviewed.</EmptyDescription></EmptyHeader></Empty>
+          )}
+        </TabsContent>
         <TabsContent value="alternative" className="mt-4"><MistakeAlternativeDeck key={`${activeSubject}:${activeMathsExamFilter}`} mistakes={visibleMistakes} allMistakes={data.mistakes} attempts={data.attempts} deck={data.alternativeMistakeDeck} onSave={onSaveAlternativeDeck} /></TabsContent>
         <TabsContent value="browse" className="mt-4">
           <div className="grid gap-4">

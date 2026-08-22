@@ -10,7 +10,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import type { AlternativeMistakeDeck, ExamAttempt, Mistake } from "@/lib/exam-data"
-import { formatChatGPTProgress, generateAlternativeMistakeQuestions, type ChatGPTProgress } from "@/lib/mistake-ai"
+import { formatChatGPTProgress, type ChatGPTProgress } from "@/lib/mistake-ai-core"
 
 type MistakeAlternativeDeckProps = {
   mistakes: Mistake[]
@@ -45,6 +45,7 @@ export function MistakeAlternativeDeck({ mistakes, allMistakes, attempts, deck, 
     setGenerating(true)
     setGenerationProgress(null)
     try {
+      const { generateAlternativeMistakeQuestions } = await import("@/lib/mistake-ai")
       const generated = await generateAlternativeMistakeQuestions(mistakes, attempts, setGenerationProgress)
       const generatedAt = new Date().toISOString()
       const replacedIds = new Set(mistakes.map((mistake) => mistake.id))

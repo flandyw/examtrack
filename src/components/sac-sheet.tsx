@@ -1,5 +1,6 @@
-import { useMemo, useState, type FormEvent } from "react"
+import { useMemo, useRef, useState, type FormEvent } from "react"
 import { Button } from "@/components/ui/button"
+import { DiscardChangesDialog } from "@/components/discard-changes-dialog"
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -38,6 +39,23 @@ export function SacSheet({ open, subjects, preferredSubjects, initialRecord, onO
   const [notes, setNotes] = useState(initialRecord?.notes ?? "")
   const [performanceContext, setPerformanceContext] = useState<PerformanceContext>(initialRecord?.performanceContext ?? {})
   const [error, setError] = useState<string | null>(null)
+  const initialSnapshot = useRef(JSON.stringify({
+    subject, provider, title, sacNumber, unit, areaOfStudy, scheduledAt, durationMinutes,
+    score, maxScore, weighting, notes, performanceContext,
+  }))
+  const dirty = JSON.stringify({
+    subject, provider, title, sacNumber, unit, areaOfStudy, scheduledAt, durationMinutes,
+    score, maxScore, weighting, notes, performanceContext,
+  }) !== initialSnapshot.current
+  const [confirmingClose, setConfirmingClose] = useState(false)
+
+  function handleOpenChange(next: boolean) {
+    if (!next && dirty) {
+      setConfirmingClose(true)
+      return
+    }
+    onOpenChange(next)
+  }
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -77,7 +95,7 @@ export function SacSheet({ open, subjects, preferredSubjects, initialRecord, onO
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet open={open} onOpenChange={handleOpenChange}>
       <SheetContent resizable className="w-full">
         <SheetHeader>
           <SheetTitle>{initialRecord ? "Edit SAC" : "Plan or log SAC"}</SheetTitle>
@@ -156,6 +174,11 @@ export function SacSheet({ open, subjects, preferredSubjects, initialRecord, onO
         </form>
         <SheetFooter><Button type="submit" form="sac-form">{initialRecord ? "Save changes" : "Save SAC"}</Button></SheetFooter>
       </SheetContent>
+      <DiscardChangesDialog
+        open={confirmingClose}
+        onKeep={() => setConfirmingClose(false)}
+        onDiscard={() => { setConfirmingClose(false); onOpenChange(false) }}
+      />
     </Sheet>
   )
 }

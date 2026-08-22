@@ -1,10 +1,11 @@
-import { useState, type FormEvent } from "react"
+import { useRef, useState, type FormEvent } from "react"
 import { useLoginWithChatGPT } from "@opencoredev/loginwithchatgpt-react"
 import { ArrowLeft, CheckCircle2, Copy, ExternalLink, Images, LogOut, Pencil, Sparkles, X } from "lucide-react"
 import { MistakeAttachments } from "@/components/mistake-attachments"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { DiscardChangesDialog } from "@/components/discard-changes-dialog"
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import {
@@ -42,7 +43,7 @@ import {
   type MistakeCategory,
   validateMistakeMarks,
 } from "@/lib/exam-data"
-import { analyseMistakeImageBatch, analyseMistakeImages, formatChatGPTProgress, validateMistakeBatchImages, validateMistakeImages, type ChatGPTProgress, type MistakeDraft } from "@/lib/mistake-ai"
+import { formatChatGPTProgress, validateMistakeBatchImages, validateMistakeImages, type ChatGPTProgress, type MistakeDraft } from "@/lib/mistake-ai-core"
 import { removeMistakeAttachments, uploadMistakeAttachments, validateSavedMistakeImages } from "@/lib/mistake-attachments"
 import type { VcaaStudyResources } from "@/lib/vcaa-resources"
 
@@ -138,6 +139,24 @@ export function MistakeSheet({
   const [saving, setSaving] = useState(false)
   const [progress, setProgress] = useState<ChatGPTProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const initialSnapshot = useRef(JSON.stringify({
+    attemptId, question, questionText, category, explanation, correction,
+    areaOfStudy, criterion, totalMarks, marksLost, imageCount: 0, batchCount: 0,
+  }))
+  const dirty = JSON.stringify({
+    attemptId, question, questionText, category, explanation, correction,
+    areaOfStudy, criterion, totalMarks, marksLost,
+    imageCount: images.length, batchCount: batchDrafts.length,
+  }) !== initialSnapshot.current
+  const [confirmingClose, setConfirmingClose] = useState(false)
+
+  function handleOpenChange(next: boolean) {
+    if (!next && dirty && !saving) {
+      setConfirmingClose(true)
+      return
+    }
+    onOpenChange(next)
+  }
 
   const selectedAttempt = attemptId || initialAttemptId || ""
   const attemptOptions = attempts.map((attempt) => ({
@@ -212,6 +231,7 @@ export function MistakeSheet({
     setAnalysing(true)
     setError(null)
     try {
+      const { analyseMistakeImageBatch, analyseMistakeImages } = await import("@/lib/mistake-ai")
       if (importMode === "batch") {
         const drafts = await analyseMistakeImageBatch(images, attempts, selectedAttempt, studies, setProgress)
         setBatchDrafts(drafts)
@@ -325,7 +345,7 @@ export function MistakeSheet({
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet open={open} onOpenChange={handleOpenChange}>
       <SheetContent resizable className="w-full">
         <SheetHeader>
           <SheetTitle>
@@ -572,6 +592,11 @@ export function MistakeSheet({
           )}
         </SheetFooter>
       </SheetContent>
+      <DiscardChangesDialog
+        open={confirmingClose}
+        onKeep={() => setConfirmingClose(false)}
+        onDiscard={() => { setConfirmingClose(false); onOpenChange(false) }}
+      />
     </Sheet>
   )
 }

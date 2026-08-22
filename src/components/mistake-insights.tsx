@@ -5,7 +5,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardTitle } from "@/components/ui/card"
 import { MarkdownPreview } from "@/components/markdown-preview"
-import { analyseMistakes, formatChatGPTProgress, generateMistakePracticeQuestions, type ChatGPTProgress } from "@/lib/mistake-ai"
+import { formatChatGPTProgress, type ChatGPTProgress } from "@/lib/mistake-ai-core"
 import type { AppData, MistakeInsights as MistakeInsightsData } from "@/lib/exam-data"
 
 const MINIMIZED_KEY = "examtrack:mistake-insights-minimized"
@@ -27,6 +27,7 @@ export function MistakeInsights({ data, priorityCategory, onSave }: { data: AppD
   async function runAnalysis() {
     setRunning(true)
     try {
+      const { analyseMistakes } = await import("@/lib/mistake-ai")
       onSave(await analyseMistakes(data.mistakes, data.attempts, setProgress))
       toast.success("Mistake insights updated")
     } catch (error) {
@@ -40,6 +41,7 @@ export function MistakeInsights({ data, priorityCategory, onSave }: { data: AppD
     if (!insights) return
     setGeneratingQuestions(true)
     try {
+      const { generateMistakePracticeQuestions } = await import("@/lib/mistake-ai")
       const practiceQuestions = await generateMistakePracticeQuestions(insights, data.mistakes, data.attempts, setProgress)
       onSave({ ...insights, practiceQuestions, questionsGeneratedAt: new Date().toISOString() })
       toast.success("Practice questions generated")

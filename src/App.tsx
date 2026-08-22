@@ -1,11 +1,13 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react"
 import {
+  AlertCircle,
   Download,
   MoreHorizontal,
   Plus,
   Upload,
 } from "lucide-react"
 import { toast } from "sonner"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -104,11 +106,20 @@ export default function App() {
   const {
     references,
     referencesGeneratedAt,
-    resourceStudies,
     resourcesGeneratedAt,
+    resourceStudies,
     scalingReferences,
     timetable,
+    referencesStatus,
+    studiesStatus,
+    scalingStatus,
+    reload: reloadReferences,
   } = useReferenceData()
+
+  const referenceLoadFailed = [referencesStatus, studiesStatus, scalingStatus].includes("error")
+  const referencesLoading = referencesStatus === "loading" || studiesStatus === "loading"
+
+  const dueMistakeCount = useMemo(() => getDueMistakes(data.mistakes).length, [data.mistakes])
 
   const subjectExamIds = useMemo(() => {
     if (!timetable) return []
@@ -370,7 +381,7 @@ export default function App() {
       <a href="#main-content" className="fixed left-2 top-2 z-50 -translate-y-20 rounded-md bg-background px-3 py-2 text-sm shadow focus:translate-y-0">Skip to content</a>
       <AppSidebar
         view={view}
-        dueMistakes={getDueMistakes(data.mistakes).length}
+        dueMistakes={dueMistakeCount}
         syncLabel={sync.user ? "Synced with Supabase" : "Stored on this device"}
         onViewChange={setView}
       />
@@ -397,6 +408,16 @@ export default function App() {
           </div>
         </header>
         <main id="main-content" className="w-full min-w-0 p-4 md:p-6 lg:p-8">
+          {referenceLoadFailed ? (
+            <Alert className="mb-6" variant="destructive">
+              <AlertCircle />
+              <AlertTitle>Some reference data failed to load</AlertTitle>
+              <AlertDescription>
+                Official VCAA comparisons, exam resources, or scaling data may be unavailable. Your own records are unaffected.
+              </AlertDescription>
+              <Button size="sm" variant="outline" onClick={reloadReferences}>Retry</Button>
+            </Alert>
+          ) : null}
           {view === "dashboard" ? (
             <Suspense fallback={<div className="h-96" />}>
               <Dashboard
@@ -418,10 +439,10 @@ export default function App() {
           ) : null}
           {view === "mistakes" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><MistakesPage data={data} studies={resourceStudies} onLog={() => openNewMistake()} onEdit={(mistake) => { setEditingMistake(mistake); setMistakeOpen(true) }} onReview={reviewMistake} onToggleSuspend={toggleMistakeSuspension} onDelete={deleteMistake} onSaveInsights={(mistakeInsights) => setData((current) => ({ ...current, mistakeInsights }))} onSaveAlternativeDeck={(alternativeMistakeDeck) => setData((current) => ({ ...current, alternativeMistakeDeck }))} /></Suspense> : null}
           {view === "sacs" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><SacPage records={data.sacRecords} subjects={references.map((reference) => reference.studyName)} preferredSubjects={data.subjects} activeTimer={data.activeSacTimer} onTimerChange={saveActiveSacTimer} onSave={saveSac} onDelete={deleteSac} /></Suspense> : null}
-          {view === "library" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><ExamLibrary references={references} studies={resourceStudies} attempts={data.attempts} completedExamIds={data.completedExamIds} generatedAt={resourcesGeneratedAt ?? referencesGeneratedAt} preferredSubjects={data.subjects} onToggleCompleted={toggleCompletedExam} onStart={(preset) => { setTimerPreset(preset); setView("timer") }} /></Suspense> : null}
+          {view === "library" ? <>{referencesLoading ? <Skeleton className="h-96 w-full" /> : <Suspense fallback={<Skeleton className="h-96 w-full" />}><ExamLibrary references={references} studies={resourceStudies} attempts={data.attempts} completedExamIds={data.completedExamIds} generatedAt={resourcesGeneratedAt ?? referencesGeneratedAt} preferredSubjects={data.subjects} onToggleCompleted={toggleCompletedExam} onStart={(preset) => { setTimerPreset(preset); setView("timer") }} /></Suspense>}</> : null}
           {view === "timer" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><ExamTimer key={timerPreset ? `${timerPreset.subject}-${timerPreset.examYear}-${timerPreset.paper}` : "manual"} references={references} studies={resourceStudies} preferredSubjects={data.subjects} initialExam={timerPreset} activeSession={data.activeExamTimer} onSessionChange={saveActiveExamTimer} onSave={(attempt) => { setTimerPreset(null); saveTimedAttempt(attempt) }} /></Suspense> : null}
-          {view === "predictor" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><StudyScorePredictor data={data} references={references} scalingReferences={scalingReferences} onSaveAtarEstimate={saveAtarEstimate} onDeleteAtarEstimate={deleteAtarEstimate} /></Suspense> : null}
-          {view === "vcaa" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><VcaaExplorer references={references} attempts={data.attempts} preferredSubjects={data.subjects} /></Suspense> : null}
+          {view === "predictor" ? <>{referencesLoading || scalingStatus === "loading" ? <Skeleton className="h-96 w-full" /> : <Suspense fallback={<Skeleton className="h-96 w-full" />}><StudyScorePredictor data={data} references={references} scalingReferences={scalingReferences} onSaveAtarEstimate={saveAtarEstimate} onDeleteAtarEstimate={deleteAtarEstimate} /></Suspense>}</> : null}
+          {view === "vcaa" ? <>{referencesLoading ? <Skeleton className="h-96 w-full" /> : <Suspense fallback={<Skeleton className="h-96 w-full" />}><VcaaExplorer references={references} attempts={data.attempts} preferredSubjects={data.subjects} /></Suspense>}</> : null}
           {view === "settings" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><SettingsPage sync={sync} focal={focal} subjects={[...new Set(references.map((reference) => reference.studyName))]} selectedSubjects={data.subjects} providers={[...new Set(data.attempts.map((attempt) => attempt.provider))]} examDifficulty={data.examDifficulty} onSubjectsChange={saveSubjects} onExamDifficultyChange={saveExamDifficulty} /></Suspense> : null}
         </main>
       </SidebarInset>
