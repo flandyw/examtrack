@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase"
 import { isExamDifficultySettings } from "@/lib/exam-difficulty"
 import { migrateSacRecords, type SacRecord } from "@/lib/sac"
 import { isExamTimerSession, isSacTimerSession, mergeTimerSession } from "@/lib/ongoing-timers"
-import { migrateLearningWorkspace } from "@/lib/learning-workspace"
+import { mergeLearningWorkspace, migrateLearningWorkspace } from "@/lib/learning-workspace"
 
 const TOMBSTONE_KEY = "examtrack:sync:tombstones:v1"
 const OWNER_KEY = "examtrack:sync:owner:v1"
@@ -231,7 +231,7 @@ export async function syncAppData(data: AppData, userId: string): Promise<AppDat
   const remoteAtarEstimatesUpdatedAt = typeof remoteState?.atarEstimatesUpdatedAt === "string" ? remoteState.atarEstimatesUpdatedAt : "1970-01-01T00:00:00.000Z"
   const { atarEstimates, atarEstimatesUpdatedAt } = mergeAtarEstimates(data.atarEstimates, data.atarEstimatesUpdatedAt, remoteAtarEstimates, remoteAtarEstimatesUpdatedAt)
   const remoteLearning = migrateLearningWorkspace(remoteState?.learning)
-  const learning = remoteLearning.updatedAt > data.learning.updatedAt ? remoteLearning : data.learning
+  const learning = mergeLearningWorkspace(data.learning, remoteLearning)
   const { error: stateError } = await supabase.from("user_state").upsert({
     user_id: userId,
     payload: { trackedExamIds, trackedExamIdsUpdatedAt, completedExamIds, completedExamIdsUpdatedAt, subjects, subjectsUpdatedAt, sacRecords, sacRecordsUpdatedAt, activeExamTimer, activeExamTimerUpdatedAt, activeSacTimer, activeSacTimerUpdatedAt, mistakeInsights, alternativeMistakeDeck, examDifficulty, atarEstimates, atarEstimatesUpdatedAt, learning },

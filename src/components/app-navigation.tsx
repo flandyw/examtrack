@@ -19,16 +19,18 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import type { AppView } from "@/lib/app-view"
-import { APP_NAVIGATION, SETTINGS_ITEM } from "@/lib/navigation"
+import { NAVIGATION_GROUPS, SETTINGS_ITEM } from "@/lib/navigation"
 
 export function AppSidebar({
   view,
   dueMistakes,
+  plannedTasks,
   syncLabel,
   onViewChange,
 }: {
   view: AppView
   dueMistakes: number
+  plannedTasks: number
   syncLabel: string
   onViewChange: (view: AppView) => void
 }) {
@@ -52,11 +54,11 @@ export function AppSidebar({
         </button>
       </SidebarHeader>
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>Study</SidebarGroupLabel>
+        {NAVIGATION_GROUPS.map((group) => <SidebarGroup key={group.label}>
+          <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {APP_NAVIGATION.map((item) => (
+              {group.items.map((item) => (
                 <SidebarMenuItem key={item.id}>
                   <SidebarMenuButton
                     isActive={view === item.id}
@@ -70,11 +72,14 @@ export function AppSidebar({
                   {item.id === "mistakes" && dueMistakes > 0 ? (
                     <SidebarMenuBadge aria-label={`${dueMistakes} mistakes due`}>{dueMistakes}</SidebarMenuBadge>
                   ) : null}
+                  {item.id === "planner" && plannedTasks > 0 ? (
+                    <SidebarMenuBadge aria-label={`${plannedTasks} study tasks due`}>{plannedTasks}</SidebarMenuBadge>
+                  ) : null}
                 </SidebarMenuItem>
               ))}
             </SidebarMenu>
           </SidebarGroupContent>
-        </SidebarGroup>
+        </SidebarGroup>)}
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>

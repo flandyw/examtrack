@@ -4,6 +4,7 @@ import {
   ArrowRight,
   ArrowUpRight,
   BookOpenCheck,
+  CalendarCheck2,
   FileDown,
   FilePlus2,
   NotebookPen,
@@ -39,6 +40,7 @@ import { ExamTable } from "@/components/exam-table"
 import { getExamTarget } from "@/lib/exam-target"
 import { getAttemptPerformance, weightedPerformanceAverage, type ExamDifficultySettings } from "@/lib/exam-difficulty"
 import { openProgressReport } from "@/lib/progress-report"
+import { localDate } from "@/lib/learning-workspace"
 
 const PerformanceTrendChart = lazy(() =>
   import("@/components/performance-trend-chart").then((module) => ({ default: module.PerformanceTrendChart })),
@@ -85,8 +87,21 @@ function pickNextAction(
     onLogMistakeForLatest: () => void
     onOpenMistakes: () => void
     onOpenLibrary: () => void
+    onOpenPlanner: () => void
   },
 ): NextAction | null {
+  const nextTask = data.learning.tasks
+    .filter((task) => !task.archivedAt && task.status === "planned" && task.plannedFor <= localDate(new Date()))
+    .toSorted((first, second) => first.plannedFor.localeCompare(second.plannedFor) || first.createdAt.localeCompare(second.createdAt))[0]
+  if (nextTask) {
+    return {
+      icon: CalendarCheck2,
+      title: nextTask.title,
+      description: `${nextTask.durationMinutes} minute planned session${nextTask.subject ? ` · ${nextTask.subject}` : ""}${nextTask.plannedFor < localDate(new Date()) ? " · overdue" : ""}.`,
+      cta: "Open planner",
+      onClick: handlers.onOpenPlanner,
+    }
+  }
   if (data.attempts.length === 0) {
     return {
       icon: FilePlus2,
@@ -518,6 +533,7 @@ export type DashboardProps = {
   onLogMistakeForLatest: () => void
   onOpenMistakes: () => void
   onOpenLibrary: () => void
+  onOpenPlanner: () => void
   onOpenTracker: () => void
   onEditExam: (attempt: ExamAttempt) => void
   onAddMistake: (attemptId: string) => void
@@ -535,6 +551,7 @@ export function Dashboard(props: DashboardProps) {
     onLogMistakeForLatest,
     onOpenMistakes,
     onOpenLibrary,
+    onOpenPlanner,
     onOpenTracker,
     onEditExam,
     onAddMistake,
@@ -542,8 +559,8 @@ export function Dashboard(props: DashboardProps) {
   } = props
   const [section, setSection] = useState<"overview" | "insights">("overview")
   const nextAction = useMemo(
-    () => pickNextAction(data, { onLogExam, onLogMistakeForLatest, onOpenMistakes, onOpenLibrary }),
-    [data, onLogExam, onLogMistakeForLatest, onOpenMistakes, onOpenLibrary],
+    () => pickNextAction(data, { onLogExam, onLogMistakeForLatest, onOpenMistakes, onOpenLibrary, onOpenPlanner }),
+    [data, onLogExam, onLogMistakeForLatest, onOpenMistakes, onOpenLibrary, onOpenPlanner],
   )
 
   function exportReport() {

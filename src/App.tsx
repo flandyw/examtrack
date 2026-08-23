@@ -50,7 +50,7 @@ import {
 import { getViewLabel } from "@/lib/navigation"
 import { useReferenceData } from "@/hooks/use-reference-data"
 import { useFocalAccount } from "@/hooks/use-focal-account"
-import type { LearningWorkspace } from "@/lib/learning-workspace"
+import { localDate, materialiseTask, type LearningWorkspaceUpdate, type PracticeSession, type StudyGoal } from "@/lib/learning-workspace"
 import { applyMistakeAutofills, type MistakeAutofill } from "@/lib/mistake-autofill"
 
 const ExamSheet = lazy(() =>
@@ -135,6 +135,7 @@ export default function App() {
   const referencesLoading = referencesStatus === "loading" || studiesStatus === "loading"
 
   const dueMistakeCount = useMemo(() => getDueMistakes(data.mistakes).length, [data.mistakes])
+  const dueStudyTaskCount = useMemo(() => data.learning.tasks.filter((task) => !task.archivedAt && task.status === "planned" && task.plannedFor <= localDate(new Date())).length, [data.learning.tasks])
 
   const subjectExamIds = useMemo(() => {
     if (!timetable) return []
@@ -236,8 +237,54 @@ export default function App() {
     setData((current) => ({ ...current, examDifficulty }))
   }
 
-  function saveLearning(learning: LearningWorkspace) {
-    setData((current) => ({ ...current, learning }))
+  function saveLearning(update: LearningWorkspaceUpdate) {
+    setData((current) => ({ ...current, learning: typeof update === "function" ? update(current.learning) : update }))
+  }
+
+  function completePracticeSession(session: PracticeSession) {
+    if (session.completedAt) return
+    const timestamp = new Date().toISOString()
+    const elapsedSeconds = session.startedAt ? Math.max(0, Math.round((Date.now() - new Date(session.startedAt).getTime()) / 1000)) : undefined
+    const ratings = new Map(session.questions.flatMap((question) => question.sourceMistakeId && question.rating !== "unattempted" ? [[question.sourceMistakeId, question.rating]] : []))
+    setData((current) => ({
+      ...current,
+      mistakes: current.mistakes.map((mistake) => {
+        const rating = ratings.get(mistake.id)
+        return rating ? recordMistakeReview(mistake, rating === "correct" ? "good" : "again") : mistake
+      }),
+      learning: {
+        ...current.learning,
+        practiceSessions: current.learning.practiceSessions.map((item) => item.id === session.id ? { ...item, completedAt: timestamp, elapsedSeconds, updatedAt: timestamp } : item),
+        updatedAt: timestamp,
+      },
+    }))
+    const correct = session.questions.filter((question) => question.rating === "correct").length
+    toast.success("Practice session completed", { description: `${correct}/${session.questions.length} recalled correctly. Linked mistake schedules were updated.` })
+  }
+
+  function planGoal(goal: StudyGoal) {
+    const sourceId = `goal:${goal.id}`
+    if (data.learning.tasks.some((task) => !task.archivedAt && task.status === "planned" && task.sourceId === sourceId)) {
+      setView("planner")
+      toast.info("This goal is already planned")
+      return
+    }
+    setData((current) => {
+      if (current.learning.tasks.some((task) => !task.archivedAt && task.status === "planned" && task.sourceId === sourceId)) return current
+      const label = goal.kind === "study-score" ? `raw ${goal.target}` : goal.kind === "atar" ? `ATAR ${goal.target}` : `${goal.target}% exam average`
+      const task = materialiseTask({
+        kind: goal.kind === "exam-percentage" ? "practice-exam" : "topic-practice",
+        title: `Work toward ${goal.subject ? `${goal.subject} ` : ""}${label}`,
+        subject: goal.subject,
+        detail: `Complete a focused evidence-building session before the ${goal.deadline} target date.`,
+        durationMinutes: Math.min(60, current.learning.preferences.dailyMinutes),
+        plannedFor: localDate(new Date()),
+        sourceId,
+      })
+      return { ...current, learning: { ...current.learning, tasks: [...current.learning.tasks, task], updatedAt: task.updatedAt } }
+    })
+    setView("planner")
+    toast.success("Goal added to your plan")
   }
 
   function saveActiveExamTimer(activeExamTimer: AppData["activeExamTimer"]) {
@@ -414,6 +461,7 @@ export default function App() {
       <AppSidebar
         view={view}
         dueMistakes={dueMistakeCount}
+        plannedTasks={dueStudyTaskCount}
         syncLabel={sync.user ? "Synced with Supabase" : "Stored on this device"}
         onViewChange={setView}
       />
@@ -462,6 +510,7 @@ export default function App() {
                 onLogMistakeForLatest={logMistakeForLatest}
                 onOpenMistakes={() => setView("mistakes")}
                 onOpenLibrary={() => setView("library")}
+                onOpenPlanner={() => setView("planner")}
                 onOpenTracker={() => setTrackerOpen(true)}
                 onEditExam={(attempt) => { setEditingAttempt(attempt); setExamOpen(true) }}
                 onAddMistake={openNewMistake}
@@ -471,8 +520,8 @@ export default function App() {
           ) : null}
           {view === "planner" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><PlannerPage data={data} timetable={timetable} onChange={saveLearning} onNavigate={setView} /></Suspense> : null}
           {view === "mastery" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><MasteryPage data={data} subjects={[...new Set(references.map((reference) => reference.studyName))]} onChange={saveLearning} onOpenPractice={(subject) => { setPracticeSubject(subject); setView("practice") }} /></Suspense> : null}
-          {view === "goals" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><GoalsPage data={data} references={references} subjects={[...new Set(references.map((reference) => reference.studyName))]} onChange={saveLearning} onOpenPlanner={() => setView("planner")} /></Suspense> : null}
-          {view === "practice" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><PracticeStudio key={practiceSubject ?? "practice"} data={data} initialSubject={practiceSubject} onChange={saveLearning} onOpenMistakes={() => setView("mistakes")} /></Suspense> : null}
+          {view === "goals" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><GoalsPage data={data} references={references} subjects={[...new Set(references.map((reference) => reference.studyName))]} onChange={saveLearning} onOpenPlanner={() => setView("planner")} onPlanGoal={planGoal} /></Suspense> : null}
+          {view === "practice" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><PracticeStudio key={practiceSubject ?? "practice"} data={data} initialSubject={practiceSubject} onChange={saveLearning} onComplete={completePracticeSession} onOpenMistakes={() => setView("mistakes")} /></Suspense> : null}
           {view === "mistakes" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><MistakesPage data={data} studies={resourceStudies} onLog={() => openNewMistake()} onEdit={(mistake) => { setEditingMistake(mistake); setMistakeOpen(true) }} onReview={reviewMistake} onToggleSuspend={toggleMistakeSuspension} onDelete={deleteMistake} onImportMistakes={importMistakes} onApplyAutofills={applyAutofills} onSaveInsights={(mistakeInsights) => setData((current) => ({ ...current, mistakeInsights }))} onSaveAlternativeDeck={(alternativeMistakeDeck) => setData((current) => ({ ...current, alternativeMistakeDeck }))} /></Suspense> : null}
           {view === "sacs" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><SacPage records={data.sacRecords} subjects={references.map((reference) => reference.studyName)} preferredSubjects={data.subjects} activeTimer={data.activeSacTimer} onTimerChange={saveActiveSacTimer} onSave={saveSac} onDelete={deleteSac} /></Suspense> : null}
           {view === "library" ? <>{referencesLoading ? <Skeleton className="h-96 w-full" /> : <Suspense fallback={<Skeleton className="h-96 w-full" />}><ExamLibrary references={references} studies={resourceStudies} attempts={data.attempts} completedExamIds={data.completedExamIds} generatedAt={resourcesGeneratedAt ?? referencesGeneratedAt} preferredSubjects={data.subjects} onToggleCompleted={toggleCompletedExam} onStart={(preset) => { setTimerPreset(preset); setView("timer") }} /></Suspense>}</> : null}

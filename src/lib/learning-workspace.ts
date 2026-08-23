@@ -19,6 +19,7 @@ export type StudyTask = {
   sourceId?: string
   createdAt: string
   updatedAt: string
+  archivedAt?: string
 }
 
 export type CurriculumArea = {
@@ -28,6 +29,7 @@ export type CurriculumArea = {
   description?: string
   createdAt: string
   updatedAt: string
+  archivedAt?: string
 }
 
 export type StudyGoalKind = "study-score" | "exam-percentage" | "atar"
@@ -40,6 +42,7 @@ export type StudyGoal = {
   deadline: string
   createdAt: string
   updatedAt: string
+  archivedAt?: string
 }
 
 export type PracticeQuestionRating = "unattempted" | "correct" | "needs-review"
@@ -63,6 +66,9 @@ export type PracticeSession = {
   createdAt: string
   updatedAt: string
   completedAt?: string
+  startedAt?: string
+  elapsedSeconds?: number
+  archivedAt?: string
 }
 
 export type LearningPreferences = {
@@ -76,8 +82,11 @@ export type LearningWorkspace = {
   goals: StudyGoal[]
   practiceSessions: PracticeSession[]
   preferences: LearningPreferences
+  preferencesUpdatedAt?: string
   updatedAt: string
 }
+
+export type LearningWorkspaceUpdate = LearningWorkspace | ((current: LearningWorkspace) => LearningWorkspace)
 
 export const EMPTY_LEARNING_WORKSPACE: LearningWorkspace = {
   tasks: [],
@@ -85,6 +94,7 @@ export const EMPTY_LEARNING_WORKSPACE: LearningWorkspace = {
   goals: [],
   practiceSessions: [],
   preferences: { dailyMinutes: 60, studyDays: [1, 2, 3, 4, 5, 6] },
+  preferencesUpdatedAt: "1970-01-01T00:00:00.000Z",
   updatedAt: "1970-01-01T00:00:00.000Z",
 }
 
@@ -117,19 +127,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isTimestamped(value: unknown) {
-  return isRecord(value) && typeof value.id === "string" && typeof value.createdAt === "string" && typeof value.updatedAt === "string"
+  return isRecord(value) && typeof value.id === "string" && typeof value.createdAt === "string" && typeof value.updatedAt === "string" &&
+    (value.archivedAt === undefined || typeof value.archivedAt === "string")
 }
 
 export function isLearningWorkspace(value: unknown): value is LearningWorkspace {
   if (!isRecord(value)) return false
   return Array.isArray(value.tasks) && value.tasks.every((task) => isTimestamped(task) &&
     ["mistake-review", "topic-practice", "practice-exam", "sac-prep", "custom"].includes(String(task.kind)) &&
-    typeof task.title === "string" && (task.subject === undefined || typeof task.subject === "string") &&
-    typeof task.detail === "string" && typeof task.durationMinutes === "number" && task.durationMinutes > 0 &&
+    typeof task.title === "string" && task.title.trim().length > 0 && task.title.length <= 500 && (task.subject === undefined || typeof task.subject === "string") &&
+    typeof task.detail === "string" && typeof task.durationMinutes === "number" && Number.isFinite(task.durationMinutes) && task.durationMinutes > 0 && task.durationMinutes <= 1440 &&
     typeof task.plannedFor === "string" && ["planned", "completed", "skipped"].includes(String(task.status)) &&
     (task.sourceId === undefined || typeof task.sourceId === "string")) &&
     Array.isArray(value.curriculumAreas) && value.curriculumAreas.every((area) => isTimestamped(area) &&
-      typeof area.subject === "string" && typeof area.name === "string" &&
+      typeof area.subject === "string" && area.subject.trim().length > 0 && typeof area.name === "string" && area.name.trim().length > 0 &&
       (area.description === undefined || typeof area.description === "string")) &&
     Array.isArray(value.goals) && value.goals.every((goal) => isTimestamped(goal) &&
       ["study-score", "exam-percentage", "atar"].includes(String(goal.kind)) &&
@@ -137,15 +148,18 @@ export function isLearningWorkspace(value: unknown): value is LearningWorkspace 
       Number.isFinite(goal.target) && typeof goal.deadline === "string") &&
     Array.isArray(value.practiceSessions) && value.practiceSessions.every((session) => isTimestamped(session) &&
       typeof session.title === "string" && typeof session.subject === "string" &&
-      typeof session.durationMinutes === "number" && session.durationMinutes > 0 &&
+      typeof session.durationMinutes === "number" && Number.isFinite(session.durationMinutes) && session.durationMinutes > 0 &&
       (session.completedAt === undefined || typeof session.completedAt === "string") &&
-      Array.isArray(session.questions) && session.questions.every((question: unknown) => isRecord(question) &&
+      (session.startedAt === undefined || typeof session.startedAt === "string") &&
+      (session.elapsedSeconds === undefined || typeof session.elapsedSeconds === "number" && Number.isFinite(session.elapsedSeconds) && session.elapsedSeconds >= 0) &&
+      Array.isArray(session.questions) && session.questions.length > 0 && session.questions.every((question: unknown) => isRecord(question) &&
         typeof question.id === "string" && (question.sourceMistakeId === undefined || typeof question.sourceMistakeId === "string") &&
         typeof question.skill === "string" && typeof question.question === "string" && typeof question.answer === "string" &&
-        typeof question.marks === "number" && question.marks > 0 &&
+        typeof question.marks === "number" && Number.isFinite(question.marks) && question.marks > 0 &&
         ["unattempted", "correct", "needs-review"].includes(String(question.rating)))) &&
     isRecord(value.preferences) && typeof value.preferences.dailyMinutes === "number" && value.preferences.dailyMinutes > 0 &&
     Array.isArray(value.preferences.studyDays) && value.preferences.studyDays.every((day) => Number.isInteger(day) && Number(day) >= 0 && Number(day) <= 6) &&
+    (value.preferencesUpdatedAt === undefined || typeof value.preferencesUpdatedAt === "string") &&
     typeof value.updatedAt === "string"
 }
 
@@ -153,7 +167,31 @@ export function migrateLearningWorkspace(value: unknown): LearningWorkspace {
   return isLearningWorkspace(value) ? value : EMPTY_LEARNING_WORKSPACE
 }
 
-function localDate(date: Date) {
+function mergeTimestamped<T extends { id: string; updatedAt: string }>(local: T[], remote: T[]) {
+  const merged = new Map(local.map((item) => [item.id, item]))
+  for (const item of remote) {
+    const current = merged.get(item.id)
+    if (!current || item.updatedAt > current.updatedAt) merged.set(item.id, item)
+  }
+  return [...merged.values()]
+}
+
+export function mergeLearningWorkspace(local: LearningWorkspace, remote: LearningWorkspace): LearningWorkspace {
+  const localPreferencesUpdatedAt = local.preferencesUpdatedAt ?? local.updatedAt
+  const remotePreferencesUpdatedAt = remote.preferencesUpdatedAt ?? remote.updatedAt
+  const remoteSettingsWin = remotePreferencesUpdatedAt > localPreferencesUpdatedAt
+  return {
+    tasks: mergeTimestamped(local.tasks, remote.tasks),
+    curriculumAreas: mergeTimestamped(local.curriculumAreas, remote.curriculumAreas),
+    goals: mergeTimestamped(local.goals, remote.goals),
+    practiceSessions: mergeTimestamped(local.practiceSessions, remote.practiceSessions),
+    preferences: remoteSettingsWin ? remote.preferences : local.preferences,
+    preferencesUpdatedAt: remoteSettingsWin ? remotePreferencesUpdatedAt : localPreferencesUpdatedAt,
+    updatedAt: remote.updatedAt > local.updatedAt ? remote.updatedAt : local.updatedAt,
+  }
+}
+
+export function localDate(date: Date) {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, "0")
   const day = String(date.getDate()).padStart(2, "0")
@@ -174,12 +212,32 @@ function nextStudyDate(preferences: LearningPreferences, from: Date, offset = 0)
   return localDate(from)
 }
 
+function buildStudyScheduler(data: Pick<AppData, "learning">, now: Date) {
+  const allocated = new Map<string, number>()
+  for (const task of data.learning.tasks) {
+    if (task.archivedAt || task.status !== "planned") continue
+    allocated.set(task.plannedFor, (allocated.get(task.plannedFor) ?? 0) + task.durationMinutes)
+  }
+  return (durationMinutes: number, offset = 0) => {
+    for (let dayOffset = Math.max(0, offset); dayOffset < 21; dayOffset += 1) {
+      const date = nextStudyDate(data.learning.preferences, now, dayOffset)
+      const used = allocated.get(date) ?? 0
+      if (used === 0 || used + durationMinutes <= data.learning.preferences.dailyMinutes) {
+        allocated.set(date, used + durationMinutes)
+        return date
+      }
+    }
+    return nextStudyDate(data.learning.preferences, now, offset)
+  }
+}
+
 function attemptForMistake(mistake: Mistake, attempts: ExamAttempt[]) {
   return attempts.find((attempt) => attempt.id === mistake.attemptId)
 }
 
 export function buildPlannerSuggestions(data: AppData, timetable?: Timetable | null, now = new Date()): PlannerSuggestion[] {
   const suggestions: PlannerSuggestion[] = []
+  const schedule = buildStudyScheduler(data, now)
   const due = data.mistakes.filter((mistake) => !mistake.suspended && (!mistake.dueAt || new Date(mistake.dueAt) <= now))
   const dueBySubject = new Map<string, Mistake[]>()
   for (const mistake of due) {
@@ -193,7 +251,7 @@ export function buildPlannerSuggestions(data: AppData, timetable?: Timetable | n
       subject,
       detail: "Recall the correction before revealing it, then grade the review.",
       durationMinutes: Math.min(35, Math.max(10, mistakes.length * 3)),
-      plannedFor: nextStudyDate(data.learning.preferences, now),
+      plannedFor: schedule(Math.min(35, Math.max(10, mistakes.length * 3))),
       sourceId: `due:${subject}`,
     })
   }
@@ -207,7 +265,7 @@ export function buildPlannerSuggestions(data: AppData, timetable?: Timetable | n
       subject: sac.subject,
       detail: `${remaining} day${remaining === 1 ? "" : "s"} remaining · focus on ${sac.areaOfStudy || "the assessed area"}.`,
       durationMinutes: Math.min(data.learning.preferences.dailyMinutes, remaining <= 3 ? 45 : 30),
-      plannedFor: nextStudyDate(data.learning.preferences, now, remaining <= 2 ? 0 : 1),
+      plannedFor: schedule(Math.min(data.learning.preferences.dailyMinutes, remaining <= 3 ? 45 : 30), remaining <= 2 ? 0 : 1),
       sourceId: sac.id,
     })
   }
@@ -220,7 +278,7 @@ export function buildPlannerSuggestions(data: AppData, timetable?: Timetable | n
       subject: area.subject,
       detail: `${Math.round(area.mastery ?? 0)}% evidence-based mastery from ${area.evidenceCount} item${area.evidenceCount === 1 ? "" : "s"}.`,
       durationMinutes: Math.min(40, data.learning.preferences.dailyMinutes),
-      plannedFor: nextStudyDate(data.learning.preferences, now, 1),
+      plannedFor: schedule(Math.min(40, data.learning.preferences.dailyMinutes), 1),
       sourceId: area.key,
     })
   }
@@ -235,7 +293,7 @@ export function buildPlannerSuggestions(data: AppData, timetable?: Timetable | n
       subject,
       detail: latest ? `Your last recorded paper was ${daysSinceExam} days ago.` : "Build your first full-paper performance baseline.",
       durationMinutes: Math.max(60, data.learning.preferences.dailyMinutes),
-      plannedFor: nextStudyDate(data.learning.preferences, now, 2),
+      plannedFor: schedule(Math.max(60, data.learning.preferences.dailyMinutes), 2),
       sourceId: `exam:${subject ?? "general"}`,
     })
   }
@@ -250,13 +308,13 @@ export function buildPlannerSuggestions(data: AppData, timetable?: Timetable | n
         subject: nextExam.subject,
         detail: `${daysUntil(nextExam, now)} days until the official exam. Rehearse under full conditions.`,
         durationMinutes: Math.max(90, data.learning.preferences.dailyMinutes),
-        plannedFor: nextStudyDate(data.learning.preferences, now),
+        plannedFor: schedule(Math.max(90, data.learning.preferences.dailyMinutes)),
         sourceId: nextExam.id,
       })
     }
   }
 
-  const existing = new Set(data.learning.tasks.filter((task) => task.status === "planned").map((task) => `${task.sourceId}:${task.plannedFor}`))
+  const existing = new Set(data.learning.tasks.filter((task) => !task.archivedAt && task.status === "planned").map((task) => `${task.sourceId}:${task.plannedFor}`))
   return suggestions.filter((suggestion) => !existing.has(`${suggestion.sourceId}:${suggestion.plannedFor}`)).slice(0, 6)
 }
 
@@ -273,7 +331,7 @@ export function buildMasteryAreas(data: Pick<AppData, "attempts" | "mistakes" | 
     buckets.set(key, current)
     return current
   }
-  for (const area of data.learning.curriculumAreas) ensure(area.subject, area.name)
+  for (const area of data.learning.curriculumAreas.filter((area) => !area.archivedAt)) ensure(area.subject, area.name)
   for (const attempt of data.attempts) {
     for (const result of attempt.questionResults ?? []) {
       const name = result.areaOfStudy?.trim() || result.criterion?.trim()
@@ -334,9 +392,18 @@ export function getGoalProgress(goal: StudyGoal, data: AppData, references: Asse
   return { current, target: goal.target, progress: current === null ? 0 : Math.max(0, Math.min(100, current / goal.target * 100)), gap, label, evidence }
 }
 
-export function createPracticeSession(subject: string, data: AppData, limit = 6, now = new Date()): PracticeSession | null {
+export function createPracticeSession(subject: string, data: AppData, options: { limit?: number; area?: string } = {}, now = new Date()): PracticeSession | null {
+  const limit = Math.max(1, Math.min(12, options.limit ?? 6))
   const attemptMap = new Map(data.attempts.map((attempt) => [attempt.id, attempt]))
-  const mistakes = data.mistakes.filter((mistake) => attemptMap.get(mistake.attemptId)?.subject.toLowerCase() === subject.toLowerCase() && !mistake.suspended)
+  const mistakes = data.mistakes.filter((mistake) => {
+    const sameSubject = attemptMap.get(mistake.attemptId)?.subject.toLowerCase() === subject.toLowerCase()
+    const area = mistake.areaOfStudy ?? mistake.criterion ?? mistake.category
+    return sameSubject && !mistake.suspended && (!options.area || area.toLowerCase() === options.area.toLowerCase())
+  }).toSorted((first, second) => {
+    const due = (first.dueAt ?? first.createdAt).localeCompare(second.dueAt ?? second.createdAt)
+    if (due !== 0) return due
+    return (second.lapses ?? 0) - (first.lapses ?? 0) || (second.marksLost ?? 0) - (first.marksLost ?? 0)
+  })
   const alternativeMap = new Map((data.alternativeMistakeDeck?.cards ?? []).map((card) => [card.sourceMistakeId, card]))
   const questions = mistakes.slice(0, limit).map((mistake): PracticeQuestion => {
     const alternative = alternativeMap.get(mistake.id)
@@ -359,6 +426,7 @@ export function createPracticeSession(subject: string, data: AppData, limit = 6,
     durationMinutes: Math.max(15, Math.min(90, questions.reduce((total, question) => total + question.marks * 2, 0))),
     questions,
     createdAt: timestamp,
+    startedAt: timestamp,
     updatedAt: timestamp,
   }
 }

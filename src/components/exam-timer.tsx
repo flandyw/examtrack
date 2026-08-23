@@ -229,7 +229,7 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
         marksAwarded: 0,
         maxMarks: item.marks,
         confidence: item.confidence,
-        examinerNote: item.status === "flagged" ? "Flagged during the timed attempt" : undefined,
+        examinerNote: [item.status === "flagged" ? "Flagged during the timed attempt" : "", item.note ?? ""].filter(Boolean).join(" · ") || undefined,
       })))
     }
     setMarkingError(null)
@@ -251,6 +251,11 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
     }
     const questionError = validateQuestionResults(questionResults)
     if (questionError) return setMarkingError(questionError)
+    const questionMaximum = questionResults.reduce((total, result) => total + result.maxMarks, 0)
+    const questionScore = questionResults.reduce((total, result) => total + result.marksAwarded, 0)
+    if (questionResults.length && Math.abs(questionMaximum - rawMax) < 0.01 && Math.abs(questionScore - rawScore) >= 0.01) {
+      return setMarkingError(`The question results total ${questionScore}/${questionMaximum}, but the overall mark is ${rawScore}/${rawMax}. Make the totals match.`)
+    }
     const timestamp = new Date().toISOString()
     onSave({
       id: crypto.randomUUID(),
@@ -443,7 +448,12 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
                 <Input id="timer-completed" type="date" value={completedAt} onChange={(event) => setCompletedAt(event.target.value)} required />
               </Field>
               <PerformanceContextFields value={performanceContext} onChange={setPerformanceContext} idPrefix="exam-timer-context" />
-              <QuestionResultsEditor value={questionResults} onChange={setQuestionResults} />
+              <QuestionResultsEditor value={questionResults} onChange={(results) => {
+                setQuestionResults(results)
+                const maximum = results.reduce((total, result) => total + result.maxMarks, 0)
+                if (Math.abs(maximum - rawMax) < 0.01) setRawScore(results.reduce((total, result) => total + result.marksAwarded, 0))
+                setMarkingError(null)
+              }} />
               <Field>
                 <FieldLabel htmlFor="timer-comment">Overall comment <span className="text-muted-foreground">(optional)</span></FieldLabel>
                 <Textarea id="timer-comment" value={comment} onChange={(event) => setComment(event.target.value)} placeholder="What went well or what to improve next time?" />
