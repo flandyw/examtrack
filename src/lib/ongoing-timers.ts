@@ -14,6 +14,18 @@ export type ExamTimerSession = {
   pausedAt?: number
   pausedSeconds: number
   focal?: FocalTimerLink
+  workspaceItems?: ExamWorkspaceItem[]
+}
+
+export type ExamWorkspaceStatus = "not-started" | "in-progress" | "flagged" | "done"
+
+export type ExamWorkspaceItem = {
+  id: string
+  label: string
+  marks: number
+  status: ExamWorkspaceStatus
+  confidence: "low" | "medium" | "high"
+  note?: string
 }
 
 export type SacTimerSession = {
@@ -64,7 +76,12 @@ export function isExamTimerSession(value: unknown): value is ExamTimerSession {
     typeof value.paper === "string" &&
     typeof value.readingMinutes === "number" && Number.isFinite(value.readingMinutes) && value.readingMinutes >= 0 &&
     typeof value.writingMinutes === "number" && Number.isFinite(value.writingMinutes) && value.writingMinutes > 0 &&
-    typeof value.marks === "number" && Number.isFinite(value.marks) && value.marks > 0
+    typeof value.marks === "number" && Number.isFinite(value.marks) && value.marks > 0 &&
+    (value.workspaceItems === undefined || Array.isArray(value.workspaceItems) && value.workspaceItems.every((item) =>
+      isRecord(item) && typeof item.id === "string" && typeof item.label === "string" &&
+      typeof item.marks === "number" && Number.isFinite(item.marks) && item.marks > 0 &&
+      ["not-started", "in-progress", "flagged", "done"].includes(String(item.status)) &&
+      ["low", "medium", "high"].includes(String(item.confidence)) && isOptionalString(item.note)))
 }
 
 export function isSacTimerSession(value: unknown): value is SacTimerSession {

@@ -149,20 +149,21 @@ describe("exam analysis", () => {
     expect(parseAppDataFile(JSON.stringify(data))).toEqual(data)
   })
 
-  test("migrates v1 AppData to v4 with empty tracking collections", () => {
+  test("migrates v1 AppData to v5 with empty tracking and learning collections", () => {
     const v1 = {
       schemaVersion: 1 as const,
       attempts: [attempt],
       mistakes: [],
     }
     const migrated = migrateAppData(v1)
-    expect(migrated?.schemaVersion).toBe(4)
+    expect(migrated?.schemaVersion).toBe(5)
     expect(migrated?.trackedExamIds).toEqual([])
     expect(migrated?.sacRecords).toEqual([])
     expect(migrated?.attempts).toHaveLength(1)
+    expect(migrated?.learning.tasks).toEqual([])
   })
 
-  test("migrates v3 exports to v4 without losing exam data", () => {
+  test("migrates v3 exports to v5 without losing exam data", () => {
     const migrated = migrateAppData({
       schemaVersion: 3,
       attempts: [attempt],
@@ -174,7 +175,7 @@ describe("exam analysis", () => {
       completedExamIds: [],
       completedExamIdsUpdatedAt: "1970-01-01T00:00:00.000Z",
     })
-    expect(migrated).toMatchObject({ schemaVersion: 4, sacRecords: [], attempts: [attempt] })
+    expect(migrated).toMatchObject({ schemaVersion: 5, sacRecords: [], attempts: [attempt], learning: { tasks: [], goals: [] } })
   })
 
   test("backfills the provider on early v4 SAC records", () => {

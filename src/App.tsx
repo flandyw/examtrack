@@ -50,6 +50,7 @@ import {
 import { getViewLabel } from "@/lib/navigation"
 import { useReferenceData } from "@/hooks/use-reference-data"
 import { useFocalAccount } from "@/hooks/use-focal-account"
+import type { LearningWorkspace } from "@/lib/learning-workspace"
 
 const ExamSheet = lazy(() =>
   import("@/components/exam-sheet").then((module) => ({ default: module.ExamSheet })),
@@ -84,6 +85,18 @@ const SacPage = lazy(() =>
 const AppCommandMenu = lazy(() =>
   import("@/components/app-command-menu").then((module) => ({ default: module.AppCommandMenu })),
 )
+const PlannerPage = lazy(() =>
+  import("@/components/planner-page").then((module) => ({ default: module.PlannerPage })),
+)
+const MasteryPage = lazy(() =>
+  import("@/components/mastery-page").then((module) => ({ default: module.MasteryPage })),
+)
+const GoalsPage = lazy(() =>
+  import("@/components/goals-page").then((module) => ({ default: module.GoalsPage })),
+)
+const PracticeStudio = lazy(() =>
+  import("@/components/practice-studio").then((module) => ({ default: module.PracticeStudio })),
+)
 
 export default function App() {
   const [view, setView] = useState<AppView>(() => loadAppView(
@@ -100,6 +113,7 @@ export default function App() {
   const [editingMistake, setEditingMistake] = useState<Mistake | null>(null)
   const [trackerOpen, setTrackerOpen] = useState(false)
   const [commandOpen, setCommandOpen] = useState(false)
+  const [practiceSubject, setPracticeSubject] = useState<string | undefined>()
   const importInput = useRef<HTMLInputElement>(null)
   const sync = useSupabaseSync(data, setData)
   const focal = useFocalAccount()
@@ -219,6 +233,10 @@ export default function App() {
 
   function saveExamDifficulty(examDifficulty: ExamDifficultySettings) {
     setData((current) => ({ ...current, examDifficulty }))
+  }
+
+  function saveLearning(learning: LearningWorkspace) {
+    setData((current) => ({ ...current, learning }))
   }
 
   function saveActiveExamTimer(activeExamTimer: AppData["activeExamTimer"]) {
@@ -442,6 +460,10 @@ export default function App() {
               />
             </Suspense>
           ) : null}
+          {view === "planner" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><PlannerPage data={data} timetable={timetable} onChange={saveLearning} onNavigate={setView} /></Suspense> : null}
+          {view === "mastery" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><MasteryPage data={data} subjects={[...new Set(references.map((reference) => reference.studyName))]} onChange={saveLearning} onOpenPractice={(subject) => { setPracticeSubject(subject); setView("practice") }} /></Suspense> : null}
+          {view === "goals" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><GoalsPage data={data} references={references} subjects={[...new Set(references.map((reference) => reference.studyName))]} onChange={saveLearning} onOpenPlanner={() => setView("planner")} /></Suspense> : null}
+          {view === "practice" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><PracticeStudio key={practiceSubject ?? "practice"} data={data} initialSubject={practiceSubject} onChange={saveLearning} onOpenMistakes={() => setView("mistakes")} /></Suspense> : null}
           {view === "mistakes" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><MistakesPage data={data} studies={resourceStudies} onLog={() => openNewMistake()} onEdit={(mistake) => { setEditingMistake(mistake); setMistakeOpen(true) }} onReview={reviewMistake} onToggleSuspend={toggleMistakeSuspension} onDelete={deleteMistake} onImportMistakes={importMistakes} onSaveInsights={(mistakeInsights) => setData((current) => ({ ...current, mistakeInsights }))} onSaveAlternativeDeck={(alternativeMistakeDeck) => setData((current) => ({ ...current, alternativeMistakeDeck }))} /></Suspense> : null}
           {view === "sacs" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><SacPage records={data.sacRecords} subjects={references.map((reference) => reference.studyName)} preferredSubjects={data.subjects} activeTimer={data.activeSacTimer} onTimerChange={saveActiveSacTimer} onSave={saveSac} onDelete={deleteSac} /></Suspense> : null}
           {view === "library" ? <>{referencesLoading ? <Skeleton className="h-96 w-full" /> : <Suspense fallback={<Skeleton className="h-96 w-full" />}><ExamLibrary references={references} studies={resourceStudies} attempts={data.attempts} completedExamIds={data.completedExamIds} generatedAt={resourcesGeneratedAt ?? referencesGeneratedAt} preferredSubjects={data.subjects} onToggleCompleted={toggleCompletedExam} onStart={(preset) => { setTimerPreset(preset); setView("timer") }} /></Suspense>}</> : null}

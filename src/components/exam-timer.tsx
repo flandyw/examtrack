@@ -19,6 +19,7 @@ import { Progress, ProgressLabel } from "@/components/ui/progress"
 import { PageHeader } from "@/components/page-header"
 import { QuestionResultsEditor } from "@/components/question-results-editor"
 import { PerformanceContextFields } from "@/components/performance-context-fields"
+import { ExamWorkspace } from "@/components/exam-workspace"
 import { useTickingNow } from "@/hooks/use-ticking-now"
 import { formatExamTitle, formatReferenceName, validateAttempt, validateQuestionResults, type AssessmentReference, type ExamAttempt, type QuestionResult } from "@/lib/exam-data"
 import { buildCompanyExamSuggestions, buildExamSuggestions, findLatestAttempt, type ExamSuggestion } from "@/lib/exam-suggestions"
@@ -113,6 +114,8 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
   )
   const latestAttempt = useMemo(() => findLatestAttempt(history.attempts), [history.attempts])
   const now = useTickingNow(250)
+  const reportUrl = useMemo(() => studies.find((study) => study.studyName.toLowerCase() === (session?.subject ?? subject).toLowerCase())?.resources.find((resource) => resource.kind === "report" && resource.year === (session?.examYear ?? examYear))?.url, [examYear, session?.examYear, session?.subject, studies, subject])
+  const paperUrl = useMemo(() => studies.find((study) => study.studyName.toLowerCase() === (session?.subject ?? subject).toLowerCase())?.resources.find((resource) => resource.kind === "exam" && resource.year === (session?.examYear ?? examYear) && (!session?.paper || resource.label.toLowerCase().includes(session.paper.toLowerCase()) || session.paper.toLowerCase().includes(resource.label.toLowerCase())))?.url, [examYear, session?.examYear, session?.paper, session?.subject, studies, subject])
 
   useEffect(() => {
     if (!migratedLegacySession.current) {
@@ -178,7 +181,7 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
     )
     const next = {
       subject: subject.trim(), provider: provider.trim(), title: formatExamTitle(provider, examYear, subject), examYear, paper: paper.trim(),
-      readingMinutes, writingMinutes, marks, startedAt: Date.now(), pausedSeconds: 0, focal,
+      readingMinutes, writingMinutes, marks, startedAt: Date.now(), pausedSeconds: 0, focal, workspaceItems: [],
     }
     saveSession(next)
     setRawMax(marks)
@@ -219,6 +222,16 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
     if (!session) return
     pause()
     setRawMax(session.marks)
+    if (!questionResults.length && session.workspaceItems?.length) {
+      setQuestionResults(session.workspaceItems.map((item) => ({
+        id: item.id,
+        label: item.label,
+        marksAwarded: 0,
+        maxMarks: item.marks,
+        confidence: item.confidence,
+        examinerNote: item.status === "flagged" ? "Flagged during the timed attempt" : undefined,
+      })))
+    }
     setMarkingError(null)
     setMarkingOpen(true)
   }
@@ -395,6 +408,15 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
         <Card><CardHeader><CardDescription>Pace</CardDescription><CardTitle className="text-3xl tabular-nums">{(session.writingMinutes / session.marks).toFixed(2)} min / mark</CardTitle></CardHeader></Card>
         <Card><CardHeader><CardDescription>Expected progress</CardDescription><CardTitle className="text-3xl tabular-nums">{timer.phase === "reading" ? "Starts in writing time" : `${timer.expectedMarks.toFixed(1)} / ${session.marks} marks`}</CardTitle></CardHeader></Card>
       </div>
+
+      <ExamWorkspace
+        items={session.workspaceItems ?? []}
+        expectedMarks={timer.expectedMarks}
+        totalMarks={session.marks}
+        paperUrl={paperUrl}
+        reportUrl={reportUrl}
+        onChange={(workspaceItems) => saveSession({ ...session, workspaceItems })}
+      />
 
       {overtime ? <Alert variant="destructive"><Clock3 /><AlertTitle>Writing time has ended</AlertTitle><AlertDescription>The timer is now recording overtime. Finish and mark when you put your pen down.</AlertDescription></Alert> : null}
 

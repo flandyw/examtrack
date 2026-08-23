@@ -2,6 +2,7 @@ import { isExamDifficultySettings, type ExamDifficultySettings } from "@/lib/exa
 import { isSacRecord, migrateSacRecords, type SacRecord } from "@/lib/sac"
 import { isPerformanceContext, type PerformanceContext } from "@/lib/performance-context"
 import { isExamTimerSession, isSacTimerSession, type ExamTimerSession, type SacTimerSession } from "@/lib/ongoing-timers"
+import { EMPTY_LEARNING_WORKSPACE, isLearningWorkspace, migrateLearningWorkspace, type LearningWorkspace } from "@/lib/learning-workspace"
 
 export const GENERAL_MISTAKE_CATEGORIES = [
   "Concept",
@@ -187,7 +188,7 @@ export type SavedAtarEstimate = {
 }
 
 export type AppData = {
-  schemaVersion: 4
+  schemaVersion: 5
   attempts: ExamAttempt[]
   mistakes: Mistake[]
   sacRecords: SacRecord[]
@@ -207,10 +208,11 @@ export type AppData = {
   examDifficulty?: ExamDifficultySettings
   atarEstimates: SavedAtarEstimate[]
   atarEstimatesUpdatedAt: string
+  learning: LearningWorkspace
 }
 
 export const EMPTY_APP_DATA: AppData = {
-  schemaVersion: 4,
+  schemaVersion: 5,
   attempts: [],
   mistakes: [],
   sacRecords: [],
@@ -225,6 +227,7 @@ export const EMPTY_APP_DATA: AppData = {
   activeSacTimerUpdatedAt: "1970-01-01T00:00:00.000Z",
   atarEstimates: [],
   atarEstimatesUpdatedAt: "1970-01-01T00:00:00.000Z",
+  learning: EMPTY_LEARNING_WORKSPACE,
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -865,7 +868,7 @@ export function isAppData(value: unknown): value is AppData {
   const sacRecordsValid = Array.isArray(data.sacRecords) && data.sacRecords.every(isSacRecord)
   const subjectsValid = Array.isArray(data.subjects) && data.subjects.every((value) => typeof value === "string")
   return (
-    data.schemaVersion === 4 &&
+    data.schemaVersion === 5 &&
     attemptsValid &&
     mistakesValid &&
     sacRecordsValid &&
@@ -885,7 +888,8 @@ export function isAppData(value: unknown): value is AppData {
     (data.examDifficulty === undefined || isExamDifficultySettings(data.examDifficulty)) &&
     Array.isArray(data.atarEstimates) &&
     data.atarEstimates.every(isSavedAtarEstimate) &&
-    typeof data.atarEstimatesUpdatedAt === "string"
+    typeof data.atarEstimatesUpdatedAt === "string" &&
+    isLearningWorkspace(data.learning)
   )
 }
 
@@ -959,13 +963,13 @@ export function migrateAppData(value: unknown): AppData | null {
   if (!isRecord(value)) return null
   const data = value as Record<string, unknown>
   const schemaVersion = data.schemaVersion
-  if (![1, 2, 3, 4].includes(Number(schemaVersion))) return null
+  if (![1, 2, 3, 4, 5].includes(Number(schemaVersion))) return null
   if (!Array.isArray(data.attempts) || !Array.isArray(data.mistakes)) return null
   const sacRecords = data.sacRecords === undefined ? [] : migrateSacRecords(data.sacRecords)
   if (sacRecords === null) return null
   const migrated = {
     ...data,
-    schemaVersion: 4 as const,
+    schemaVersion: 5 as const,
     subjects: Array.isArray(data.subjects) ? data.subjects : [],
     subjectsUpdatedAt: typeof data.subjectsUpdatedAt === "string" ? data.subjectsUpdatedAt : "1970-01-01T00:00:00.000Z",
     trackedExamIds: Array.isArray(data.trackedExamIds) ? data.trackedExamIds : [],
@@ -980,6 +984,7 @@ export function migrateAppData(value: unknown): AppData | null {
     sacRecordsUpdatedAt: typeof data.sacRecordsUpdatedAt === "string" ? data.sacRecordsUpdatedAt : "1970-01-01T00:00:00.000Z",
     atarEstimates: Array.isArray(data.atarEstimates) ? data.atarEstimates : [],
     atarEstimatesUpdatedAt: typeof data.atarEstimatesUpdatedAt === "string" ? data.atarEstimatesUpdatedAt : "1970-01-01T00:00:00.000Z",
+    learning: migrateLearningWorkspace(data.learning),
   }
   return isAppData(migrated) ? migrated : null
 }
