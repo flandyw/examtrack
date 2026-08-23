@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { createChatGPTProgressHandler, formatMistakeAIError, orderMistakeBatchDrafts, selectChatGPTModel, validateMistakeBatchImages, validateMistakeImage, validateMistakeImages } from "../src/lib/mistake-ai"
+import { applyMistakeAutofills, getEmptyMistakeFields, type MistakeAutofill } from "../src/lib/mistake-autofill"
+import type { Mistake } from "../src/lib/exam-data"
 
 describe("mistake image analysis", () => {
   test("validates uploads and chooses from the account's available models", () => {
@@ -54,5 +56,64 @@ describe("mistake image analysis", () => {
       { phase: "writing", tokens: 3, estimated: true, reasoning: true },
       { phase: "complete", tokens: 12, estimated: false, reasoning: true },
     ])
+  })
+})
+
+describe("mistake field autofill", () => {
+  const mistake: Mistake = {
+    id: "mistake-1",
+    attemptId: "exam-1",
+    question: "Question 2",
+    questionText: "Existing prompt",
+    category: "Concept",
+    explanation: "",
+    correction: "Existing correction",
+    marksLost: 0,
+    resolved: false,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  }
+
+  test("finds blank text and absent numbers without treating zero as empty", () => {
+    expect(getEmptyMistakeFields(mistake)).toEqual(["explanation", "areaOfStudy", "criterion", "totalMarks"])
+  })
+
+  test("fills only empty fields and preserves every existing value", () => {
+    const autofill: MistakeAutofill = {
+      id: mistake.id,
+      question: "Replacement label",
+      questionText: "Replacement prompt",
+      explanation: "Missed the governing concept",
+      correction: "Replacement correction",
+      areaOfStudy: "Topic 1",
+      criterion: "Use the correct principle",
+      totalMarks: 4,
+      marksLost: 3,
+    }
+    const [updated] = applyMistakeAutofills([mistake], [autofill], "2026-02-01T00:00:00.000Z")
+    expect(updated).toEqual({
+      ...mistake,
+      explanation: "Missed the governing concept",
+      areaOfStudy: "Topic 1",
+      criterion: "Use the correct principle",
+      totalMarks: 4,
+      updatedAt: "2026-02-01T00:00:00.000Z",
+    })
+  })
+
+  test("rechecks current values and rejects invalid generated marks", () => {
+    const current = { ...mistake, explanation: "Added while AI was running", marksLost: undefined }
+    const autofill: MistakeAutofill = {
+      id: mistake.id,
+      question: null,
+      questionText: null,
+      explanation: "AI explanation",
+      correction: null,
+      areaOfStudy: null,
+      criterion: null,
+      totalMarks: -1,
+      marksLost: -2,
+    }
+    expect(applyMistakeAutofills([current], [autofill], "later")[0]).toBe(current)
   })
 })

@@ -2,6 +2,7 @@ import { createChatGPTProxyProvider } from "@opencoredev/loginwithchatgpt-ai"
 import { jsonSchema, Output, streamText } from "ai"
 import { MISTAKE_CATEGORIES, type AlternativeMistakeCard, type ExamAttempt, type Mistake, type MistakeInsights } from "@/lib/exam-data"
 import { loadAISettings, supportsStreamedAnalysis } from "@/lib/ai-settings"
+import { getEmptyMistakeFields, type MistakeAutofill } from "@/lib/mistake-autofill"
 import { findVcaaExamForAttempt, type VcaaStudyResources } from "@/lib/vcaa-resources"
 import {
   createChatGPTProgressHandler,
@@ -100,6 +101,74 @@ function mistakeContext(mistakes: Mistake[], attempts: ExamAttempt[]) {
     suspended: mistake.suspended,
     reviews: mistake.reviewHistory?.map(({ result }) => result),
   }))
+}
+
+export async function autofillMistakeFields(
+  mistakes: Mistake[],
+  attempts: ExamAttempt[],
+  onProgress?: (progress: ChatGPTProgress) => void,
+): Promise<MistakeAutofill[]> {
+  const candidates = mistakes.filter((mistake) => getEmptyMistakeFields(mistake).length > 0)
+  if (!candidates.length) return []
+
+  onProgress?.({ phase: "connecting", tokens: 0, estimated: true, reasoning: false })
+  const { chatgpt, model, settings } = await getChatGPTModel()
+  const batches = Array.from({ length: Math.ceil(candidates.length / 10) }, (_, index) => candidates.slice(index * 10, index * 10 + 10))
+  const autofills: MistakeAutofill[] = []
+
+  for (const batch of batches) {
+    const ids = batch.map((mistake) => mistake.id)
+    const nullableString = { anyOf: [{ type: "string" }, { type: "null" }] } as const
+    const nullableNumber = { anyOf: [{ type: "number" }, { type: "null" }] } as const
+    const schema = jsonSchema<{ autofills: MistakeAutofill[] }>({
+      type: "object",
+      additionalProperties: false,
+      required: ["autofills"],
+      properties: {
+        autofills: {
+          type: "array",
+          minItems: batch.length,
+          maxItems: batch.length,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["id", "question", "questionText", "explanation", "correction", "areaOfStudy", "criterion", "totalMarks", "marksLost"],
+            properties: {
+              id: { type: "string", enum: ids },
+              question: nullableString,
+              questionText: nullableString,
+              explanation: nullableString,
+              correction: nullableString,
+              areaOfStudy: nullableString,
+              criterion: nullableString,
+              totalMarks: nullableNumber,
+              marksLost: nullableNumber,
+            },
+          },
+        },
+      },
+    })
+    const records = batch.map((mistake) => ({
+      ...mistakeContext([mistake], attempts)[0],
+      emptyFields: getEmptyMistakeFields(mistake),
+    }))
+    const result = streamText({
+      model: chatgpt(model),
+      output: Output.object({ schema, name: "mistake_autofills" }),
+      maxOutputTokens: Math.max(1200, batch.length * 450),
+      headers: { "x-login-with-chatgpt-reasoning-effort": settings.reasoningEffort },
+      onChunk: createChatGPTProgressHandler(onProgress),
+      prompt: `Fill the listed emptyFields in each student's mistake record using only the supplied record and exam context. Return exactly one object for every id. For fields not listed in emptyFields, return null: existing values must never be rewritten. Keep question as a short item label, questionText as a self-contained faithful reconstruction, explanation as a concise diagnosis, correction as an actionable improved response or method, areaOfStudy and criterion as concise labels, and marks as realistic non-negative numbers with totalMarks greater than zero and marksLost no greater than totalMarks. Do not pretend to know missing exact wording or marks; return null when the evidence is insufficient. Records: ${JSON.stringify(records)}`,
+    })
+    const batchAutofills = (await result.output).autofills
+    const returnedIds = new Set(batchAutofills.map((autofill) => autofill.id))
+    if (batchAutofills.length !== ids.length || returnedIds.size !== ids.length || ids.some((id) => !returnedIds.has(id))) {
+      throw new Error("ChatGPT did not return one autofill result for every mistake. Try again.")
+    }
+    autofills.push(...batchAutofills)
+  }
+
+  return autofills
 }
 
 type GeneratedAlternativeMistakeCard = Omit<AlternativeMistakeCard, "generatedAt">

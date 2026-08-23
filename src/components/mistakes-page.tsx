@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { BookOpenCheck, FileDown, FileJson, NotebookPen, Plus, Search, Shuffle, SkipForward } from "lucide-react"
+import { BookOpenCheck, FileDown, FileJson, NotebookPen, Plus, Search, Shuffle, SkipForward, Sparkles } from "lucide-react"
 import { toast } from "sonner"
 
 import { MarkdownPreview } from "@/components/markdown-preview"
@@ -30,6 +30,8 @@ import {
 import { downloadMistakesPdf } from "@/lib/mistake-pdf"
 import { isTechSplitMathsSubject, matchesMathsExamFilter, type MathsExamFilter } from "@/lib/mistake-filters"
 import { buildRevisionPriorities, buildRevisionQueue, formatReviewInterval, getMistakeProgress, getMistakeQueueCounts } from "@/lib/mistake-review"
+import { getEmptyMistakeFields, hasEmptyMistakeFields, type MistakeAutofill } from "@/lib/mistake-autofill"
+import { formatChatGPTProgress, type ChatGPTProgress } from "@/lib/mistake-ai-core"
 import { findVcaaExamForAttempt, type VcaaStudyResources } from "@/lib/vcaa-resources"
 
 type BrowserFilter = "all" | "due" | "new" | "learning" | "review" | "mature" | "suspended"
@@ -44,6 +46,7 @@ type MistakesPageProps = {
   onToggleSuspend: (mistake: Mistake) => void
   onDelete: (mistake: Mistake) => void
   onImportMistakes: (mistakes: Mistake[]) => void
+  onApplyAutofills: (autofills: MistakeAutofill[]) => void
   onSaveInsights: (insights: NonNullable<AppData["mistakeInsights"]>) => void
   onSaveAlternativeDeck: (deck: NonNullable<AppData["alternativeMistakeDeck"]>) => void
 }
@@ -303,7 +306,7 @@ function BrowseCard({ mistake, attempt, studies, onEdit, onToggleSuspend, onDele
   )
 }
 
-export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleSuspend, onDelete, onImportMistakes, onSaveInsights, onSaveAlternativeDeck }: MistakesPageProps) {
+export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleSuspend, onDelete, onImportMistakes, onApplyAutofills, onSaveInsights, onSaveAlternativeDeck }: MistakesPageProps) {
   const [subject, setSubject] = useState("all")
   const [mathsExamFilter, setMathsExamFilter] = useState<MathsExamFilter>("all")
   const [tab, setTab] = useState<PageTab>("study")
@@ -311,6 +314,8 @@ export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleS
   const [browserFilter, setBrowserFilter] = useState<BrowserFilter>("all")
   const [exporting, setExporting] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+  const [autofilling, setAutofilling] = useState(false)
+  const [autofillProgress, setAutofillProgress] = useState<ChatGPTProgress | null>(null)
   const attemptMap = useMemo(() => new Map(data.attempts.map((attempt) => [attempt.id, attempt])), [data.attempts])
   const subjects = useMemo(() => [...new Set(data.attempts.map((attempt) => attempt.subject))].toSorted(), [data.attempts])
   const activeSubject = subject === "all" || subjects.includes(subject) ? subject : "all"
@@ -328,6 +333,8 @@ export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleS
   const topPriority = useMemo(() => buildRevisionPriorities(visibleMistakes).find((item) => item.unresolved > 0), [visibleMistakes])
   const worksheetMistakes = useMemo(() => buildRevisionQueue(visibleMistakes), [visibleMistakes])
   const alternativeCount = useMemo(() => data.alternativeMistakeDeck?.cards.filter((card) => visibleMistakes.some((mistake) => mistake.id === card.sourceMistakeId)).length ?? 0, [data.alternativeMistakeDeck, visibleMistakes])
+  const autofillCandidates = useMemo(() => data.mistakes.filter(hasEmptyMistakeFields), [data.mistakes])
+  const emptyFieldCount = useMemo(() => autofillCandidates.reduce((total, mistake) => total + getEmptyMistakeFields(mistake).length, 0), [autofillCandidates])
   const browsedMistakes = useMemo(() => {
     const normalizedSearch = search.trim().toLocaleLowerCase()
     const schedules = new Map(visibleMistakes.map((mistake) => [mistake.id, getMistakeSchedule(mistake)]))
@@ -391,13 +398,30 @@ export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleS
     }
   }
 
+  async function autofillEmptyFields() {
+    setAutofilling(true)
+    setAutofillProgress(null)
+    try {
+      const { autofillMistakeFields } = await import("@/lib/mistake-ai")
+      const autofills = await autofillMistakeFields(autofillCandidates, data.attempts, setAutofillProgress)
+      onApplyAutofills(autofills)
+      toast.success(`Autofilled empty fields across ${autofills.length} mistake${autofills.length === 1 ? "" : "s"}`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not autofill mistake fields.")
+    } finally {
+      setAutofilling(false)
+    }
+  }
+
   return (
     <div className="grid gap-6">
       <PageHeader title="Mistakes" description="Study the cards due today, reveal the correction, then grade how easily you recalled it.">
+        <Button variant="outline" onClick={() => void autofillEmptyFields()} disabled={!autofillCandidates.length || autofilling} title={emptyFieldCount ? `${emptyFieldCount} empty field${emptyFieldCount === 1 ? "" : "s"} across ${autofillCandidates.length} mistakes` : "All mistake fields are filled"}><Sparkles />{autofilling ? "Autofilling…" : `Autofill empty fields${autofillCandidates.length ? ` (${autofillCandidates.length})` : ""}`}</Button>
         <Button variant="outline" onClick={() => void exportWorksheet()} disabled={!worksheetMistakes.length || exporting}><FileDown />{exporting ? "Creating PDF..." : "Export worksheet"}</Button>
         <Button variant="outline" onClick={() => setImportOpen(true)} disabled={!data.attempts.length}><FileJson />Import from chatbot</Button>
         <Button onClick={onLog} disabled={!data.attempts.length}><Plus />Log mistake</Button>
       </PageHeader>
+      {autofilling && autofillProgress ? <p role="status" aria-live="polite" className="text-sm text-muted-foreground tabular-nums">{formatChatGPTProgress(autofillProgress)}</p> : null}
       <MistakeInsights data={data} priorityCategory={topPriority?.category} onSave={onSaveInsights} />
       {data.mistakes.length ? <Card size="sm">
         <CardHeader className="grid gap-3 border-b sm:grid-cols-[1fr_auto] sm:items-start">
