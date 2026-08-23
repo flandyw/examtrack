@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react"
-import { BookOpenCheck, FileDown, NotebookPen, Plus, Search, Shuffle, SkipForward } from "lucide-react"
+import { BookOpenCheck, FileDown, FileJson, NotebookPen, Plus, Search, Shuffle, SkipForward } from "lucide-react"
 import { toast } from "sonner"
 
 import { MarkdownPreview } from "@/components/markdown-preview"
 import { MistakeAttachments } from "@/components/mistake-attachments"
 import { MistakeAlternativeDeck } from "@/components/mistake-alternative-deck"
+import { MistakeJsonImportDialog } from "@/components/mistake-json-import"
 import { MistakeInsights } from "@/components/mistake-insights"
 import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
@@ -42,6 +43,7 @@ type MistakesPageProps = {
   onReview: (mistake: Mistake, rating: ReviewRating) => void
   onToggleSuspend: (mistake: Mistake) => void
   onDelete: (mistake: Mistake) => void
+  onImportMistakes: (mistakes: Mistake[]) => void
   onSaveInsights: (insights: NonNullable<AppData["mistakeInsights"]>) => void
   onSaveAlternativeDeck: (deck: NonNullable<AppData["alternativeMistakeDeck"]>) => void
 }
@@ -301,13 +303,14 @@ function BrowseCard({ mistake, attempt, studies, onEdit, onToggleSuspend, onDele
   )
 }
 
-export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleSuspend, onDelete, onSaveInsights, onSaveAlternativeDeck }: MistakesPageProps) {
+export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleSuspend, onDelete, onImportMistakes, onSaveInsights, onSaveAlternativeDeck }: MistakesPageProps) {
   const [subject, setSubject] = useState("all")
   const [mathsExamFilter, setMathsExamFilter] = useState<MathsExamFilter>("all")
   const [tab, setTab] = useState<PageTab>("study")
   const [search, setSearch] = useState("")
   const [browserFilter, setBrowserFilter] = useState<BrowserFilter>("all")
   const [exporting, setExporting] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   const attemptMap = useMemo(() => new Map(data.attempts.map((attempt) => [attempt.id, attempt])), [data.attempts])
   const subjects = useMemo(() => [...new Set(data.attempts.map((attempt) => attempt.subject))].toSorted(), [data.attempts])
   const activeSubject = subject === "all" || subjects.includes(subject) ? subject : "all"
@@ -392,6 +395,7 @@ export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleS
     <div className="grid gap-6">
       <PageHeader title="Mistakes" description="Study the cards due today, reveal the correction, then grade how easily you recalled it.">
         <Button variant="outline" onClick={() => void exportWorksheet()} disabled={!worksheetMistakes.length || exporting}><FileDown />{exporting ? "Creating PDF..." : "Export worksheet"}</Button>
+        <Button variant="outline" onClick={() => setImportOpen(true)} disabled={!data.attempts.length}><FileJson />Import from chatbot</Button>
         <Button onClick={onLog} disabled={!data.attempts.length}><Plus />Log mistake</Button>
       </PageHeader>
       <MistakeInsights data={data} priorityCategory={topPriority?.category} onSave={onSaveInsights} />
@@ -506,6 +510,14 @@ export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleS
           </div>
         </TabsContent>
       </Tabs>
+      {importOpen ? (
+        <MistakeJsonImportDialog
+          open
+          attempts={data.attempts}
+          onOpenChange={setImportOpen}
+          onSaveMistakes={onImportMistakes}
+        />
+      ) : null}
     </div>
   )
 }
