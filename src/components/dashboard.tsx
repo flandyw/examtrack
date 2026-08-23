@@ -34,6 +34,7 @@ import { getMistakeProgress } from "@/lib/mistake-review"
 import { buildFocusPriorities, buildSubjectOutlooks } from "@/lib/performance-insights"
 import type { Timetable } from "@/lib/timetable"
 import { PageHeader } from "@/components/page-header"
+import { WorkspacePage } from "@/components/workspace-layout"
 import { UpcomingExamsCard } from "@/components/upcoming-exams-card"
 import { PerformanceContextInsights } from "@/components/performance-context-insights"
 import { ExamTable } from "@/components/exam-table"
@@ -582,7 +583,7 @@ export function Dashboard(props: DashboardProps) {
 
   if (data.attempts.length === 0) {
     return (
-      <div className="grid gap-6">
+      <WorkspacePage>
         <PageHeader
           title="Dashboard"
           description="Your practice exam results and the mistakes worth revisiting."
@@ -594,7 +595,7 @@ export function Dashboard(props: DashboardProps) {
         </PageHeader>
         <NextActionNotice action={nextAction} />
         {deadlineSection}
-        <Empty className="min-h-[24rem] border">
+        <Empty className="min-h-64 border">
           <EmptyHeader>
             <EmptyMedia variant="icon">
               <BookOpenCheck />
@@ -612,12 +613,12 @@ export function Dashboard(props: DashboardProps) {
             </Button>
           </EmptyContent>
         </Empty>
-      </div>
+      </WorkspacePage>
     )
   }
 
   return (
-    <div className="grid gap-6">
+    <WorkspacePage>
       <PageHeader
         title="Dashboard"
         description="Your practice exam results and the mistakes worth revisiting."
@@ -692,6 +693,6 @@ export function Dashboard(props: DashboardProps) {
           ) : null}
         </TabsContent>
       </Tabs>
-    </div>
+    </WorkspacePage>
   )
 }

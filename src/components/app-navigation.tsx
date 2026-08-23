@@ -43,7 +43,7 @@ export function AppSidebar({
 
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader>
+      <SidebarHeader className="pb-1">
         <button
           type="button"
           className="flex h-10 items-center gap-2 rounded-md px-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
@@ -53,9 +53,9 @@ export function AppSidebar({
           <span className="font-semibold group-data-[collapsible=icon]:hidden">ExamTrack</span>
         </button>
       </SidebarHeader>
-      <SidebarContent>
-        {NAVIGATION_GROUPS.map((group) => <SidebarGroup key={group.label}>
-          <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
+      <SidebarContent className="gap-1 px-1">
+        {NAVIGATION_GROUPS.map((group) => <SidebarGroup className="p-1.5" key={group.label}>
+          <SidebarGroupLabel className="h-7 px-1.5">{group.label}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {group.items.map((item) => (
@@ -81,7 +81,7 @@ export function AppSidebar({
           </SidebarGroupContent>
         </SidebarGroup>)}
       </SidebarContent>
-      <SidebarFooter>
+      <SidebarFooter className="gap-1 pt-1">
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton

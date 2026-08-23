@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Progress, ProgressLabel } from "@/components/ui/progress"
 import { PageHeader } from "@/components/page-header"
+import { MetricCard, MetricGrid, WorkspacePage } from "@/components/workspace-layout"
 import { QuestionResultsEditor } from "@/components/question-results-editor"
 import { PerformanceContextFields } from "@/components/performance-context-fields"
 import { ExamWorkspace } from "@/components/exam-workspace"
@@ -288,10 +289,10 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
 
   if (!session || !timer) {
     return (
-      <div className="grid gap-6">
+      <WorkspacePage>
         <PageHeader title="Exam timer" description="Choose an exam, set the conditions, then begin when your paper is ready." />
         {suggestions.length || companySuggestions.length ? (
-          <Card className="w-full">
+          <Card className="w-full gap-5">
             <CardHeader>
               <CardTitle>Suggested next exams</CardTitle>
               <CardDescription>
@@ -301,7 +302,7 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
                 {" "}Choose one to fill the setup form.
               </CardDescription>
             </CardHeader>
-            <CardContent className="grid gap-6">
+            <CardContent className="grid gap-5">
               {suggestions.length ? <section className="grid gap-2" aria-labelledby="official-suggestions-title">
                 <div><h3 id="official-suggestions-title" className="text-sm font-medium">Official VCAA papers</h3><p className="text-xs text-muted-foreground">Continue through available papers and years for your current subject.</p></div>
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -321,31 +322,28 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
             </CardContent>
           </Card>
         ) : null}
-        <Card className="w-full">
+        <Card className="w-full gap-5">
           <CardHeader>
             <CardTitle>Set up your exam</CardTitle>
             <CardDescription>Enter the paper details and timed conditions.</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={start}>
-              <FieldGroup>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field>
+              <FieldGroup className="gap-6">
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-12">
+                  <Field className="xl:col-span-4">
                     <FieldLabel htmlFor="timer-subject">Subject</FieldLabel>
                     <SubjectCombobox subjects={subjects} preferredSubjects={preferredSubjects} value={subject} onValueChange={setSubject} id="timer-subject" allowCustom required placeholder="Search or enter a subject" />
                   </Field>
-                  <Field>
+                  <Field className="xl:col-span-3">
                     <FieldLabel htmlFor="timer-provider">Provider</FieldLabel>
                     <Input id="timer-provider" value={provider} onChange={(event) => setProvider(event.target.value)} placeholder="VCAA" required />
                   </Field>
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field>
+                  <Field className="xl:col-span-2">
                     <FieldLabel htmlFor="timer-year">Exam year</FieldLabel>
                     <Input id="timer-year" type="number" min="1990" max="2100" value={examYear} onChange={(event) => setExamYear(event.target.valueAsNumber)} required />
                   </Field>
-                  <Field>
+                  <Field className="xl:col-span-3">
                     <FieldLabel htmlFor="timer-paper">Paper</FieldLabel>
                     <Input id="timer-paper" list="timer-paper-options" value={paper} onChange={(event) => setPaper(event.target.value)} placeholder="Exam, paper, or assessment name" />
                     <datalist id="timer-paper-options">{paperOptions.map((item) => <option key={item} value={item} />)}</datalist>
@@ -369,24 +367,26 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
                     </Field>
                   </div>
                 </div>
-                <Alert>
-                  <Clock3 />
-                  <AlertTitle>{(writingMinutes / marks || 0).toFixed(2)} minutes per mark</AlertTitle>
-                  <AlertDescription>The timer moves from reading to writing automatically and records overtime.</AlertDescription>
-                </Alert>
-                <Button type="submit" size="lg">{readingMinutes ? "Begin reading time" : "Begin writing time"}</Button>
+                <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+                  <Alert>
+                    <Clock3 />
+                    <AlertTitle>{(writingMinutes / marks || 0).toFixed(2)} minutes per mark</AlertTitle>
+                    <AlertDescription>The timer moves from reading to writing automatically and records overtime.</AlertDescription>
+                  </Alert>
+                  <Button className="w-full lg:w-auto" type="submit" size="lg">{readingMinutes ? "Begin reading time" : "Begin writing time"}</Button>
+                </div>
               </FieldGroup>
             </form>
           </CardContent>
         </Card>
-      </div>
+      </WorkspacePage>
     )
   }
 
   const phaseLabel = timer.phase === "reading" ? "Reading time" : timer.phase === "writing" ? "Writing time" : "Overtime"
   const overtime = timer.phase === "overtime"
   return (
-    <div className="mx-auto grid w-full max-w-5xl gap-8">
+    <WorkspacePage>
       <PageHeader title={session.title} description={`${session.subject} · ${session.readingMinutes} min reading · ${session.writingMinutes} min writing · ${session.marks} marks`}>
         <Button variant="ghost" onClick={reset}><RotateCcw />Discard</Button>
         <Button variant="outline" onClick={session.pausedAt ? resume : pause}>{session.pausedAt ? <Play /> : <Pause />}{session.pausedAt ? "Resume" : "Pause"}</Button>
@@ -409,10 +409,10 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
         {timer.phase === "reading" ? <Button className="mx-auto" variant="outline" onClick={skipReading}>Skip to writing time</Button> : null}
       </section>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Card><CardHeader><CardDescription>Pace</CardDescription><CardTitle className="text-3xl tabular-nums">{(session.writingMinutes / session.marks).toFixed(2)} min / mark</CardTitle></CardHeader></Card>
-        <Card><CardHeader><CardDescription>Expected progress</CardDescription><CardTitle className="text-3xl tabular-nums">{timer.phase === "reading" ? "Starts in writing time" : `${timer.expectedMarks.toFixed(1)} / ${session.marks} marks`}</CardTitle></CardHeader></Card>
-      </div>
+      <MetricGrid className="grid-cols-1 sm:grid-cols-2">
+        <MetricCard label="Pace" value={`${(session.writingMinutes / session.marks).toFixed(2)} min / mark`}><span>Planned writing pace</span></MetricCard>
+        <MetricCard label="Expected progress" value={timer.phase === "reading" ? "Starts in writing" : `${timer.expectedMarks.toFixed(1)} / ${session.marks} marks`}><span>Based on elapsed writing time</span></MetricCard>
+      </MetricGrid>
 
       <ExamWorkspace
         items={session.workspaceItems ?? []}
@@ -467,6 +467,6 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </WorkspacePage>
   )
 }

@@ -10,6 +10,7 @@ import { Progress } from "@/components/ui/progress"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { PageHeader } from "@/components/page-header"
 import { SubjectCombobox } from "@/components/subject-combobox"
+import { MetricCard, MetricGrid, SectionHeading, WorkspacePage } from "@/components/workspace-layout"
 import type { AppData } from "@/lib/exam-data"
 import { buildMasteryAreas, type LearningWorkspace, type LearningWorkspaceUpdate } from "@/lib/learning-workspace"
 
@@ -72,29 +73,29 @@ export function MasteryPage({ data, subjects, onChange, onOpenPractice }: {
   }
 
   return (
-    <div className="grid gap-6">
+    <WorkspacePage>
       <PageHeader title="Curriculum mastery" description="See which areas are secure, weak, or still untested from question-level results and mistake evidence." />
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card><CardHeader><CardDescription>Mapped areas</CardDescription><CardTitle className="text-3xl tabular-nums">{areas.length}</CardTitle></CardHeader></Card>
-        <Card><CardHeader><CardDescription>Revision priorities</CardDescription><CardTitle className="text-3xl tabular-nums">{priorities}</CardTitle></CardHeader></Card>
-        <Card><CardHeader><CardDescription>Untested areas</CardDescription><CardTitle className="text-3xl tabular-nums">{untested}</CardTitle></CardHeader></Card>
-      </div>
-      <Card>
+      <MetricGrid>
+        <MetricCard label="Mapped areas" value={areas.length}><span>Across all subjects</span></MetricCard>
+        <MetricCard label="Revision priorities" value={priorities}><span>Below 70% mastery</span></MetricCard>
+        <MetricCard label="Untested areas" value={untested}><span>Waiting for evidence</span></MetricCard>
+      </MetricGrid>
+      <Card className="gap-5">
         <CardHeader><CardTitle>Add a curriculum area</CardTitle><CardDescription>Create the map from your study design, teacher course outline, or current Areas of Study.</CardDescription></CardHeader>
-        <CardContent className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
+        <CardContent className="grid gap-4 md:grid-cols-[minmax(14rem,0.8fr)_minmax(18rem,1.2fr)_auto] md:items-end">
           <Field><FieldLabel htmlFor="mastery-subject">Subject</FieldLabel><SubjectCombobox id="mastery-subject" subjects={subjects} preferredSubjects={data.subjects} value={subject} onValueChange={setSubject} allowCustom required /></Field>
           <Field data-invalid={error ? true : undefined}><FieldLabel htmlFor="mastery-area">Area, skill, or outcome</FieldLabel><Input id="mastery-area" value={name} onChange={(event) => { setName(event.target.value); setError(null) }} placeholder="e.g. Differentiation" /></Field>
           <Button onClick={addArea}><Plus />Add area</Button>
-          <FieldError className="sm:col-span-full">{error}</FieldError>
+          <FieldError className="md:col-span-full">{error}</FieldError>
         </CardContent>
       </Card>
 
       {areas.length ? <div className="flex flex-col gap-3 sm:flex-row"><div className="relative flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input aria-label="Search mastery areas" className="pl-9" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search subjects and areas" /></div><Select value={filter} onValueChange={(value) => setFilter((value ?? "all") as typeof filter)}><SelectTrigger className="w-full sm:w-44" aria-label="Filter mastery areas"><SelectValue>{filter === "all" ? "All areas" : filter === "priority" ? "Priorities" : "Untested"}</SelectValue></SelectTrigger><SelectContent><SelectItem value="all">All areas</SelectItem><SelectItem value="priority">Priorities</SelectItem><SelectItem value="untested">Untested</SelectItem></SelectContent></Select></div> : null}
 
       {visibleAreas.length ? [...grouped.entries()].map(([subjectName, subjectAreas]) => (
-        <section key={subjectName} className="grid gap-3" aria-labelledby={`mastery-${subjectName}`}>
-          <div className="flex items-end justify-between gap-3"><div><h2 id={`mastery-${subjectName}`} className="text-lg font-semibold">{subjectName}</h2><p className="text-sm text-muted-foreground">{subjectAreas.length} mapped area{subjectAreas.length === 1 ? "" : "s"}</p></div><Button size="sm" variant="outline" onClick={() => onOpenPractice(subjectName)}>Practise priorities</Button></div>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{subjectAreas.map((area) => {
+        <section key={subjectName} className="grid gap-4" aria-labelledby={`mastery-${subjectName}`}>
+          <SectionHeading id={`mastery-${subjectName}`} title={subjectName} description={`${subjectAreas.length} mapped area${subjectAreas.length === 1 ? "" : "s"}`} action={<Button size="sm" variant="outline" onClick={() => onOpenPractice(subjectName)}>Practise priorities</Button>} />
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{subjectAreas.map((area) => {
             const manual = data.learning.curriculumAreas.some((item) => !item.archivedAt && item.subject === area.subject && item.name === area.name)
             return <Card key={area.key}>
               <CardHeader><div className="flex items-start justify-between gap-3"><div><CardTitle>{area.name}</CardTitle><CardDescription>{area.evidenceCount ? `${area.evidenceCount} evidence item${area.evidenceCount === 1 ? "" : "s"} · ${area.mistakes} mistake${area.mistakes === 1 ? "" : "s"}` : "No linked evidence yet"}</CardDescription></div><Badge variant={area.mastery !== null && area.mastery < 70 ? "destructive" : "outline"}>{masteryLabel(area.mastery)}</Badge></div></CardHeader>
@@ -102,8 +103,8 @@ export function MasteryPage({ data, subjects, onChange, onOpenPractice }: {
             </Card>
           })}</div>
         </section>
-      )) : <Empty className="min-h-72 border"><EmptyHeader><EmptyMedia variant="icon"><BookOpenCheck /></EmptyMedia><EmptyTitle>{areas.length ? "No matching mastery areas" : "Build your mastery map"}</EmptyTitle><EmptyDescription>{areas.length ? "Try a different search or filter." : "Add curriculum areas above, or label Areas of Study while recording question results and mistakes."}</EmptyDescription></EmptyHeader></Empty>}
+      )) : <Empty className="min-h-56 border"><EmptyHeader><EmptyMedia variant="icon"><BookOpenCheck /></EmptyMedia><EmptyTitle>{areas.length ? "No matching mastery areas" : "Build your mastery map"}</EmptyTitle><EmptyDescription>{areas.length ? "Try a different search or filter." : "Add curriculum areas above, or label Areas of Study while recording question results and mistakes."}</EmptyDescription></EmptyHeader></Empty>}
       {archivedAreas.length ? <Card><CardHeader><CardTitle>Archived curriculum areas</CardTitle><CardDescription>Restore an area without losing its synced history.</CardDescription></CardHeader><CardContent className="grid gap-2 sm:grid-cols-2">{archivedAreas.map((area) => <div key={area.id} className="flex items-center justify-between gap-3 rounded-md border p-3"><div><p className="text-sm font-medium">{area.name}</p><p className="text-xs text-muted-foreground">{area.subject}</p></div><Button size="sm" variant="outline" onClick={() => restoreArea(area.id)}>Restore</Button></div>)}</CardContent></Card> : null}
-    </div>
+    </WorkspacePage>
   )
 }

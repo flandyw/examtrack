@@ -7,6 +7,7 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTi
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { PageHeader } from "@/components/page-header"
+import { MetricCard, MetricGrid, SectionHeading, WorkspacePage } from "@/components/workspace-layout"
 import { useTickingNow } from "@/hooks/use-ticking-now"
 import { formatTimer } from "@/lib/exam-timer"
 import { createPracticeSession, type LearningWorkspace, type LearningWorkspaceUpdate, type PracticeQuestionRating, type PracticeSession } from "@/lib/learning-workspace"
@@ -82,14 +83,14 @@ export function PracticeStudio({ data, initialSubject, onChange, onComplete, onO
     const correct = active.questions.filter((question) => question.rating === "correct").length
     const finished = active.questions.every((question) => question.rating !== "unattempted")
     const elapsed = active.elapsedSeconds ?? (active.startedAt ? Math.max(0, Math.round((now.getTime() - new Date(active.startedAt).getTime()) / 1000)) : 0)
-    return <div className="grid gap-6">
+    return <WorkspacePage>
       <PageHeader title={active.title} description={`${active.questions.length} questions · ${active.durationMinutes} minute target · ${correct} correct`}>
         <Badge variant={elapsed > active.durationMinutes * 60 ? "destructive" : "outline"}><Clock3 />{formatTimer(elapsed)}</Badge>
         <Button variant="outline" onClick={() => setActiveId("")}>Exit session</Button>
         {!active.completedAt ? <Button onClick={() => onComplete(active)} disabled={!finished}><Check />Complete session</Button> : null}
       </PageHeader>
       {active.completedAt ? <Card><CardHeader><CardTitle>Completed practice</CardTitle><CardDescription>{correct}/{active.questions.length} recalled correctly in {formatTimer(elapsed)}. The linked mistake schedules were updated when this session was completed.</CardDescription></CardHeader><CardContent className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => { setSubject(active.subject); setArea("all"); setActiveId("") }}><RotateCcw />Build follow-up session</Button><Button variant="ghost" onClick={() => archiveSession(active.id)}><Archive />Archive result</Button></CardContent></Card> : null}
-      <div className="grid gap-4 lg:grid-cols-2">{active.questions.map((question, index) => {
+      <div className="grid items-start gap-4 lg:grid-cols-2">{active.questions.map((question, index) => {
         const isRevealed = Boolean(active.completedAt) || revealed.has(question.id)
         return <Card key={question.id} className={question.rating === "needs-review" ? "border-destructive/50" : undefined}>
           <CardHeader><div className="flex items-start justify-between gap-3"><div><CardDescription>Question {index + 1} · {question.skill}</CardDescription><CardTitle className="mt-1 leading-relaxed">{question.question}</CardTitle></div><Badge variant="outline">{question.marks} mark{question.marks === 1 ? "" : "s"}</Badge></div></CardHeader>
@@ -98,30 +99,30 @@ export function PracticeStudio({ data, initialSubject, onChange, onComplete, onO
         </Card>
       })}</div>
       {!active.completedAt && finished ? <Card><CardHeader><CardTitle>Session ready to complete</CardTitle><CardDescription>{correct}/{active.questions.length} questions recalled correctly. Completing will record Good or Again against every linked mistake card.</CardDescription></CardHeader><CardContent><Button onClick={() => onComplete(active)}><Check />Save result and update reviews</Button></CardContent></Card> : null}
-    </div>
+    </WorkspacePage>
   }
 
-  return <div className="grid gap-6">
+  return <WorkspacePage>
     <PageHeader title="Practice studio" description="Build a focused practice set from due mistakes and generated alternatives." />
-    <div className="grid gap-4 sm:grid-cols-3">
-      <Card><CardHeader><CardDescription>Completed sessions</CardDescription><CardTitle className="text-3xl tabular-nums">{completedSessions.length}</CardTitle></CardHeader></Card>
-      <Card><CardHeader><CardDescription>Average recall</CardDescription><CardTitle className="text-3xl tabular-nums">{averageRecall === null ? "—" : `${Math.round(averageRecall)}%`}</CardTitle></CardHeader></Card>
-      <Card><CardHeader><CardDescription>Active mistake cards</CardDescription><CardTitle className="text-3xl tabular-nums">{data.mistakes.filter((mistake) => !mistake.suspended).length}</CardTitle></CardHeader></Card>
-    </div>
-    <Card>
+    <MetricGrid>
+      <MetricCard label="Completed sessions" value={completedSessions.length}><span>Saved practice results</span></MetricCard>
+      <MetricCard label="Average recall" value={averageRecall === null ? "—" : `${Math.round(averageRecall)}%`}><span>Across completed sessions</span></MetricCard>
+      <MetricCard label="Active mistake cards" value={data.mistakes.filter((mistake) => !mistake.suspended).length}><span>Available for targeted work</span></MetricCard>
+    </MetricGrid>
+    <Card className="gap-5">
       <CardHeader><CardTitle>Create a targeted session</CardTitle><CardDescription>Due cards and recurring errors are prioritised. Generated alternatives are used where available.</CardDescription></CardHeader>
-      <CardContent className="grid gap-3 sm:grid-cols-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_10rem_auto] lg:items-end">
-        <Field><FieldLabel htmlFor="practice-subject">Subject</FieldLabel><Select value={subject} onValueChange={(value) => { setSubject(value ?? ""); setArea("all"); setError(null) }}><SelectTrigger id="practice-subject" className="w-full"><SelectValue>{subject || "Choose a subject"}</SelectValue></SelectTrigger><SelectContent>{availableSubjects.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select></Field>
-        <Field><FieldLabel htmlFor="practice-area">Focus</FieldLabel><Select value={area} onValueChange={(value) => { setArea(value ?? "all"); setError(null) }}><SelectTrigger id="practice-area" className="w-full"><SelectValue>{area === "all" ? "All weak areas" : area}</SelectValue></SelectTrigger><SelectContent><SelectItem value="all">All weak areas</SelectItem>{availableAreas.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select></Field>
-        <Field><FieldLabel htmlFor="practice-count">Questions</FieldLabel><Select value={String(questionCount)} onValueChange={(value) => setQuestionCount(Number(value ?? 6))}><SelectTrigger id="practice-count" className="w-full"><SelectValue>{questionCount}</SelectValue></SelectTrigger><SelectContent><SelectItem value="3">3 questions</SelectItem><SelectItem value="6">6 questions</SelectItem><SelectItem value="10">10 questions</SelectItem></SelectContent></Select></Field>
-        <Button onClick={create} disabled={!subject}><Plus />Build session</Button>
-        <FieldError className="sm:col-span-3 lg:col-span-full">{error}</FieldError>
+      <CardContent className="grid gap-4 sm:grid-cols-2 xl:grid-cols-12 xl:items-end">
+        <Field className="xl:col-span-4"><FieldLabel htmlFor="practice-subject">Subject</FieldLabel><Select value={subject} onValueChange={(value) => { setSubject(value ?? ""); setArea("all"); setError(null) }}><SelectTrigger id="practice-subject" className="w-full"><SelectValue>{subject || "Choose a subject"}</SelectValue></SelectTrigger><SelectContent>{availableSubjects.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select></Field>
+        <Field className="xl:col-span-4"><FieldLabel htmlFor="practice-area">Focus</FieldLabel><Select value={area} onValueChange={(value) => { setArea(value ?? "all"); setError(null) }}><SelectTrigger id="practice-area" className="w-full"><SelectValue>{area === "all" ? "All weak areas" : area}</SelectValue></SelectTrigger><SelectContent><SelectItem value="all">All weak areas</SelectItem>{availableAreas.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select></Field>
+        <Field className="xl:col-span-2"><FieldLabel htmlFor="practice-count">Questions</FieldLabel><Select value={String(questionCount)} onValueChange={(value) => setQuestionCount(Number(value ?? 6))}><SelectTrigger id="practice-count" className="w-full"><SelectValue>{questionCount}</SelectValue></SelectTrigger><SelectContent><SelectItem value="3">3 questions</SelectItem><SelectItem value="6">6 questions</SelectItem><SelectItem value="10">10 questions</SelectItem></SelectContent></Select></Field>
+        <Button className="w-full xl:col-span-2" onClick={create} disabled={!subject}><Plus />Build session</Button>
+        <FieldError className="sm:col-span-2 xl:col-span-full">{error}</FieldError>
       </CardContent>
     </Card>
-    {sessions.length ? <section className="grid gap-3"><div><h2 className="text-lg font-semibold">Session history</h2><p className="text-sm text-muted-foreground">Resume unfinished work or inspect completed evidence.</p></div><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{sessions.map((session) => {
+    {sessions.length ? <section className="grid gap-4"><SectionHeading title="Session history" description="Resume unfinished work or inspect completed evidence." /><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{sessions.map((session) => {
       const correct = session.questions.filter((question) => question.rating === "correct").length
       return <Card key={session.id}><CardHeader><div className="flex items-start justify-between gap-3"><div><CardTitle>{session.title}</CardTitle><CardDescription>{new Date(session.createdAt).toLocaleDateString("en-AU")} · {session.questions.length} questions{session.elapsedSeconds !== undefined ? ` · ${formatTimer(session.elapsedSeconds)}` : ""}</CardDescription></div><Badge variant={session.completedAt ? "secondary" : "outline"}>{session.completedAt ? `${correct}/${session.questions.length}` : "In progress"}</Badge></div></CardHeader><CardContent className="flex gap-2"><Button variant="outline" onClick={() => { setActiveId(session.id); setRevealed(new Set()) }}><RotateCcw />{session.completedAt ? "Review" : "Resume"}</Button><Button variant="ghost" size="icon-sm" onClick={() => archiveSession(session.id)}><Archive /><span className="sr-only">Archive session</span></Button></CardContent></Card>
-    })}</div></section> : <Empty className="min-h-64 border"><EmptyHeader><EmptyMedia variant="icon"><FileQuestion /></EmptyMedia><EmptyTitle>No practice sessions yet</EmptyTitle><EmptyDescription>Log mistakes for a subject, then build your first targeted set.</EmptyDescription></EmptyHeader><EmptyContent><Button variant="outline" onClick={onOpenMistakes}>Open mistakes</Button></EmptyContent></Empty>}
+    })}</div></section> : <Empty className="min-h-56 border"><EmptyHeader><EmptyMedia variant="icon"><FileQuestion /></EmptyMedia><EmptyTitle>No practice sessions yet</EmptyTitle><EmptyDescription>Log mistakes for a subject, then build your first targeted set.</EmptyDescription></EmptyHeader><EmptyContent><Button variant="outline" onClick={onOpenMistakes}>Open mistakes</Button></EmptyContent></Empty>}
     {archivedSessions.length ? <Card><CardHeader><CardTitle>Archived sessions</CardTitle><CardDescription>Restore a session to inspect its questions and result.</CardDescription></CardHeader><CardContent className="grid gap-2 sm:grid-cols-2">{archivedSessions.map((session) => <div key={session.id} className="flex items-center justify-between gap-3 rounded-md border p-3"><div><p className="text-sm font-medium">{session.title}</p><p className="text-xs text-muted-foreground">{session.questions.length} questions</p></div><Button size="sm" variant="outline" onClick={() => restoreSession(session.id)}>Restore</Button></div>)}</CardContent></Card> : null}
-  </div>
+  </WorkspacePage>
 }
