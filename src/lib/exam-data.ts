@@ -533,6 +533,15 @@ export function normaliseComparisonName(value: string) {
     .trim()
 }
 
+export function formatOrdinal(value: number) {
+  const rounded = Math.round(value)
+  const mod100 = Math.abs(rounded) % 100
+  const suffix = mod100 >= 11 && mod100 <= 13
+    ? "th"
+    : ({ 1: "st", 2: "nd", 3: "rd" } as const)[Math.abs(rounded) % 10 as 1 | 2 | 3] ?? "th"
+  return `${rounded}${suffix}`
+}
+
 export function matchesAttemptReference(attempt: Pick<ExamAttempt, "subject" | "paper">, reference: AssessmentReference) {
   return normaliseComparisonName(attempt.subject) === normaliseComparisonName(reference.studyName) &&
     normaliseComparisonName(attempt.paper) === normaliseComparisonName(reference.name)

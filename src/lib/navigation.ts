@@ -27,7 +27,7 @@ const ACTION_NAVIGATION: NavigationItem[] = [
 
 const ASSESSMENT_NAVIGATION: NavigationItem[] = [
   { id: "sacs" as const, label: "SACs", description: "Plan, time, and record SACs", icon: ClipboardCheck },
-  { id: "library" as const, label: "Exam library", description: "Find official VCAA papers", icon: BookOpenText },
+  { id: "library" as const, label: "VCAA library", description: "Official papers, reports, and progression", icon: BookOpenText },
   { id: "timer" as const, label: "Exam timer", description: "Run a timed practice paper", icon: Clock3 },
 ]
 
@@ -35,7 +35,7 @@ const ANALYSIS_NAVIGATION: NavigationItem[] = [
   { id: "mastery" as const, label: "Mastery", description: "Map curriculum strengths and gaps", icon: Map },
   { id: "goals" as const, label: "Goals", description: "Work backwards from score targets", icon: Target },
   { id: "predictor" as const, label: "Study score", description: "Estimate study scores and ATAR", icon: Calculator },
-  { id: "vcaa" as const, label: "VCAA data", description: "Explore official grade distributions", icon: LibraryBig },
+  { id: "vcaa" as const, label: "VCAA data", description: "Compare grades and open matching papers", icon: LibraryBig },
 ]
 
 export const NAVIGATION_GROUPS: Array<{ label: string; items: NavigationItem[] }> = [

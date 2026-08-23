@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { analyseAttempt, analyseScore, buildAttemptBenchmarks, buildCoverage, buildSubjectBenchmarks, buildVcaaYearInsights, computeDistributionStats, EMPTY_APP_DATA, findAttemptReferenceForYear, formatExamTitle, getAttemptPoints, getDueMistakes, getMistakeSchedule, isAppData, matchesAttemptReference, migrateAppData, previewMistakeReview, recordMistakeReview, removeAttempt, validateAttempt, validateMistakeMarks, type AssessmentReference, type ExamAttempt, type Mistake } from "../src/lib/exam-data"
+import { analyseAttempt, analyseScore, buildAttemptBenchmarks, buildCoverage, buildSubjectBenchmarks, buildVcaaYearInsights, computeDistributionStats, EMPTY_APP_DATA, findAttemptReferenceForYear, formatExamTitle, formatOrdinal, getAttemptPoints, getDueMistakes, getMistakeSchedule, isAppData, matchesAttemptReference, migrateAppData, previewMistakeReview, recordMistakeReview, removeAttempt, validateAttempt, validateMistakeMarks, type AssessmentReference, type ExamAttempt, type Mistake } from "../src/lib/exam-data"
 import { parseAppDataFile } from "../src/lib/storage"
 import { buildTimetableCalendar, suggestTimetableForAttempt, type Timetable, type TimetableEntry } from "../src/lib/timetable"
 
@@ -36,6 +36,10 @@ const attempt: ExamAttempt = {
 }
 
 describe("exam analysis", () => {
+  test("formats percentile ordinals correctly", () => {
+    expect([1, 2, 3, 4, 11, 12, 13, 21, 71].map(formatOrdinal)).toEqual(["1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "71st"])
+  })
+
   test("derives exam titles from provider, year, and subject", () => {
     expect(formatExamTitle("VCAA", 2025, "Mathematical Methods")).toBe("VCAA 2025 Mathematical Methods")
   })

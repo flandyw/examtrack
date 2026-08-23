@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { ExternalLink } from "lucide-react"
+import { ExternalLink, FileCheck2, Play } from "lucide-react"
 import { CartesianGrid, Line, LineChart, ReferenceLine, XAxis, YAxis } from "recharts"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -13,12 +13,16 @@ import { PageHeader } from "@/components/page-header"
 import { SubjectCombobox } from "@/components/subject-combobox"
 import {
   buildVcaaYearInsights,
+  formatOrdinal,
   formatReferenceName,
   normaliseComparisonName,
   type AssessmentReference,
   type ExamAttempt,
 } from "@/lib/exam-data"
 import { firstPreferredSubject, prioritiseSubjects } from "@/lib/subjects"
+import type { ExamTimerPreset } from "@/components/exam-timer"
+import { getKnownExamConditions } from "@/lib/exam-conditions"
+import { getVcaaExamCompanions, getVcaaExamPaper, getVcaaExamProvider, getVcaaExams, type VcaaStudyResources } from "@/lib/vcaa-resources"
 
 const chartConfig = {
   aPlusCutoffPercentage: { label: "A+ cutoff", color: "#dc2626" },
@@ -30,13 +34,21 @@ function formatPercent(value: number | null) {
   return value === null ? "—" : `${value.toFixed(1)}%`
 }
 
-export function VcaaExplorer({ references, attempts, preferredSubjects }: { references: AssessmentReference[]; attempts: ExamAttempt[]; preferredSubjects: string[] }) {
+export type VcaaExplorerPreset = {
+  subject: string
+  paper: string
+  score: number
+}
+
+export function VcaaExplorer({ references, attempts, preferredSubjects, studies = [], initialSelection, onOpenLibrary, onStart }: { references: AssessmentReference[]; attempts: ExamAttempt[]; preferredSubjects: string[]; studies?: VcaaStudyResources[]; initialSelection?: VcaaExplorerPreset | null; onOpenLibrary?: () => void; onStart?: (preset: ExamTimerPreset) => void }) {
   const latestAttempt = attempts.toSorted((a, b) => b.completedAt.localeCompare(a.completedAt))[0]
   const subjects = useMemo(
     () => prioritiseSubjects(references.map((reference) => reference.studyName), preferredSubjects),
     [preferredSubjects, references],
   )
-  const initialSubject = firstPreferredSubject(subjects, preferredSubjects) || (subjects.includes(latestAttempt?.subject) ? latestAttempt.subject : (subjects[0] ?? ""))
+  const resourceSubjects = new Set(getVcaaExams(studies).map((exam) => normaliseComparisonName(exam.studyName)))
+  const presetSubject = subjects.find((item) => normaliseComparisonName(item) === normaliseComparisonName(initialSelection?.subject ?? ""))
+  const initialSubject = presetSubject || firstPreferredSubject(subjects, preferredSubjects) || (subjects.includes(latestAttempt?.subject) ? latestAttempt.subject : "") || subjects.find((item) => resourceSubjects.has(normaliseComparisonName(item))) || (subjects[0] ?? "")
   const [subjectValue, setSubject] = useState(initialSubject)
   const subject = subjects.includes(subjectValue) ? subjectValue : initialSubject
   const subjectReferences = references.filter((reference) => reference.studyName === subject)
@@ -44,10 +56,14 @@ export function VcaaExplorer({ references, attempts, preferredSubjects }: { refe
     normaliseComparisonName(reference.name),
     formatReferenceName(reference.name),
   ])).entries()]
-  const latestPaperKey = latestAttempt?.subject === subject ? normaliseComparisonName(latestAttempt.paper) : ""
+  const latestPaperKey = initialSelection && normaliseComparisonName(initialSelection.subject) === normaliseComparisonName(subject)
+    ? normaliseComparisonName(initialSelection.paper)
+    : latestAttempt?.subject === subject ? normaliseComparisonName(latestAttempt.paper) : ""
   const [paper, setPaper] = useState(papers.some(([key]) => key === latestPaperKey) ? latestPaperKey : (papers[0]?.[0] ?? ""))
   const selectedPaper = papers.some(([key]) => key === paper) ? paper : (papers[0]?.[0] ?? "")
-  const initialScore = latestAttempt && latestAttempt.subject === initialSubject
+  const initialScore = initialSelection && normaliseComparisonName(initialSelection.subject) === normaliseComparisonName(initialSubject)
+    ? initialSelection.score
+    : latestAttempt && latestAttempt.subject === initialSubject
     ? (latestAttempt.rawScore / latestAttempt.rawMax) * 100
     : 75
   const [score, setScore] = useState(initialScore)
@@ -57,8 +73,24 @@ export function VcaaExplorer({ references, attempts, preferredSubjects }: { refe
   const insights = buildVcaaYearInsights(matchingReferences, score)
   const latest = insights.at(-1)
   const cohortTotal = insights.reduce((total, insight) => total + (insight.cohortSize ?? 0), 0)
+  const selectedStudy = studies.find((study) => normaliseComparisonName(study.studyName) === normaliseComparisonName(subject))
+  const selectedExam = getVcaaExams(selectedStudy ? [selectedStudy] : []).filter((exam) =>
+    normaliseComparisonName(getVcaaExamPaper(exam)) === selectedPaper && exam.year !== null,
+  ).toSorted((first, second) => (second.year ?? 0) - (first.year ?? 0))[0]
+  const selectedCompanions = selectedExam ? getVcaaExamCompanions(selectedExam, selectedStudy) : null
+  const selectedReference = selectedExam ? matchingReferences.find((reference) => reference.year === selectedExam.year) : undefined
+  const selectedConditions = selectedExam ? getKnownExamConditions(selectedExam.studyName, getVcaaExamPaper(selectedExam)) : null
+  const selectedTimerPreset: ExamTimerPreset | null = selectedExam?.year === null || !selectedExam ? null : {
+    subject: selectedExam.studyName,
+    provider: getVcaaExamProvider(selectedExam),
+    examYear: selectedExam.year,
+    paper: getVcaaExamPaper(selectedExam),
+    marks: selectedConditions?.marks ?? selectedReference?.maxScore ?? 100,
+    readingMinutes: selectedConditions?.readingMinutes,
+    writingMinutes: selectedConditions?.writingMinutes,
+  }
   const summary = insights.length
-    ? `${subject} ${papers.find(([key]) => key === selectedPaper)?.[1] ?? "exam"}: ${insights.length} years of official grade bands. A ${score.toFixed(1)}% score is estimated as ${latest?.grade ?? "ungraded"} and the ${latest?.percentile?.toFixed(0) ?? "unknown"}th percentile in ${latest?.year}.`
+    ? `${subject} ${papers.find(([key]) => key === selectedPaper)?.[1] ?? "exam"}: ${insights.length} years of official grade bands. A ${score.toFixed(1)}% score is estimated as ${latest?.grade ?? "ungraded"} and the ${latest?.percentile === null || latest?.percentile === undefined ? "unknown" : formatOrdinal(latest.percentile)} percentile in ${latest?.year}.`
     : `No VCAA grade distributions are available for ${subject}.`
 
   if (!references.length) {
@@ -72,7 +104,9 @@ export function VcaaExplorer({ references, attempts, preferredSubjects }: { refe
 
   return (
     <div className="grid gap-6">
-      <PageHeader title="VCAA data" description="Explore official grade distributions and compare the same mark across years." />
+      <PageHeader title="VCAA data" description="Explore official grade distributions, then move directly into the matching paper and marking material.">
+        {onOpenLibrary ? <Button variant="outline" onClick={onOpenLibrary}>Open VCAA library</Button> : null}
+      </PageHeader>
 
       <Card>
         <CardHeader>
@@ -125,16 +159,24 @@ export function VcaaExplorer({ references, attempts, preferredSubjects }: { refe
         <Card>
           <CardHeader>
             <CardTitle>Coverage</CardTitle>
-            <CardDescription>What is available for this exam.</CardDescription>
+            <CardDescription>Distribution coverage and the latest matching official material.</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="grid gap-5">
             <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-3 text-sm">
               <dt className="text-muted-foreground">Years</dt><dd className="font-medium tabular-nums">{insights.length}</dd>
               <dt className="text-muted-foreground">Range</dt><dd className="font-medium tabular-nums">{insights.length ? `${insights[0].year}–${latest?.year}` : "—"}</dd>
               <dt className="text-muted-foreground">Students represented</dt><dd className="font-medium tabular-nums">{cohortTotal ? cohortTotal.toLocaleString("en-AU") : "—"}</dd>
               <dt className="text-muted-foreground">Latest A+ cutoff</dt><dd className="font-medium tabular-nums">{formatPercent(latest?.aPlusCutoffPercentage ?? null)}</dd>
-              <dt className="text-muted-foreground">Your latest estimate</dt><dd>{latest?.grade ? <Badge variant="secondary">{latest.grade} · {latest.percentile?.toFixed(0)}th</Badge> : "—"}</dd>
+              <dt className="text-muted-foreground">Your latest estimate</dt><dd>{latest?.grade ? <Badge variant="secondary">{latest.grade} · {latest.percentile === null || latest.percentile === undefined ? "—" : formatOrdinal(latest.percentile)}</Badge> : "—"}</dd>
             </dl>
+            {selectedExam ? (
+              <div className="grid gap-2 border-t pt-4">
+                <p className="text-sm font-medium">Latest paper · {selectedExam.year}</p>
+                {selectedTimerPreset && onStart ? <Button onClick={() => onStart(selectedTimerPreset)}><Play />Start timed attempt</Button> : null}
+                <Button nativeButton={false} variant="outline" render={<a href={selectedExam.url} target="_blank" rel="noreferrer" />}><ExternalLink />Open exam paper</Button>
+                {selectedCompanions?.reports.map((report) => <Button nativeButton={false} key={report.url} variant="outline" render={<a href={report.url} target="_blank" rel="noreferrer" />}><FileCheck2 />{/assessment guide/i.test(report.label) ? "Assessment guide" : "Examiner report"}</Button>)}
+              </div>
+            ) : selectedStudy ? <Button nativeButton={false} variant="outline" render={<a href={selectedStudy.pageUrl} target="_blank" rel="noreferrer" />}><ExternalLink />Open official study page</Button> : null}
           </CardContent>
         </Card>
       </div>
@@ -151,8 +193,8 @@ export function VcaaExplorer({ references, attempts, preferredSubjects }: { refe
                 <TableCell className="tabular-nums">{formatPercent(insight.aPlusCutoffPercentage)}</TableCell>
                 <TableCell className="tabular-nums">{formatPercent(insight.meanPercentage)}</TableCell>
                 <TableCell className="tabular-nums">{formatPercent(insight.medianPercentage)}</TableCell>
-                <TableCell><span className="font-medium">{insight.grade ?? "—"}</span>{insight.percentile !== null ? <span className="ml-2 text-xs text-muted-foreground tabular-nums">{insight.percentile.toFixed(0)}th percentile</span> : null}</TableCell>
-                <TableCell className="text-right"><Button variant="ghost" size="sm" render={<a href={insight.sourceUrl} target="_blank" rel="noreferrer" />}><ExternalLink />PDF<span className="sr-only"> for {insight.year}</span></Button></TableCell>
+                <TableCell><span className="font-medium">{insight.grade ?? "—"}</span>{insight.percentile !== null ? <span className="ml-2 text-xs text-muted-foreground tabular-nums">{formatOrdinal(insight.percentile)} percentile</span> : null}</TableCell>
+                <TableCell className="text-right"><Button nativeButton={false} variant="ghost" size="sm" render={<a href={insight.sourceUrl} target="_blank" rel="noreferrer" />}><ExternalLink />PDF<span className="sr-only"> for {insight.year}</span></Button></TableCell>
               </TableRow>
             ))}</TableBody>
           </Table>

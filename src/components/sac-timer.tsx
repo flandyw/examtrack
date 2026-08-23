@@ -13,7 +13,7 @@ import { SubjectCombobox } from "@/components/subject-combobox"
 import { PerformanceContextFields } from "@/components/performance-context-fields"
 import { useTickingNow } from "@/hooks/use-ticking-now"
 import { formatTimer } from "@/lib/exam-timer"
-import { getSacTimerState, validateSac, type SacRecord, type SacUnit } from "@/lib/sac"
+import { getSacTimerState, SAC_UNITS, validateSac, type SacRecord, type SacUnit } from "@/lib/sac"
 import {
   createFocalTimerLink,
   pauseFocalTimer,
@@ -55,7 +55,7 @@ export function SacTimer({ records, subjects, preferredSubjects, initialRecord, 
   const [provider, setProvider] = useState(initialRecord?.provider ?? "")
   const [title, setTitle] = useState(initialRecord?.title ?? "")
   const [sacNumber, setSacNumber] = useState(initialRecord?.sacNumber ?? "")
-  const [unit, setUnit] = useState<SacUnit>(initialRecord?.unit ?? 3)
+  const [unit, setUnit] = useState<SacUnit | null>(initialRecord?.unit ?? null)
   const [areaOfStudy, setAreaOfStudy] = useState(initialRecord?.areaOfStudy ?? "")
   const [scheduledAt, setScheduledAt] = useState(initialRecord?.scheduledAt ?? today())
   const [durationMinutes, setDurationMinutes] = useState(initialRecord?.durationMinutes ?? 50)
@@ -88,6 +88,7 @@ export function SacTimer({ records, subjects, preferredSubjects, initialRecord, 
 
   function start(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (unit === null) return setError("Choose the unit for this assessment.")
     const validationError = validateSac({ subject, provider, title, unit, scheduledAt, durationMinutes, maxScore: undefined, score: undefined, weighting: initialRecord?.weighting }) ??
       (!Number.isFinite(maxScore) || maxScore <= 0 ? "Total marks must be greater than zero." : null)
     if (validationError) return setError(validationError)
@@ -219,7 +220,7 @@ export function SacTimer({ records, subjects, preferredSubjects, initialRecord, 
                 <Field><FieldLabel htmlFor="sac-timer-number">SAC number <span className="text-muted-foreground">(optional)</span></FieldLabel><Input id="sac-timer-number" value={sacNumber} onChange={(event) => setSacNumber(event.target.value)} placeholder="e.g. 2 or 3A" /></Field>
               </div>
               <div className="grid gap-4 sm:grid-cols-3">
-                <Field><FieldLabel htmlFor="sac-timer-unit">Unit</FieldLabel><Select value={String(unit)} onValueChange={(value) => setUnit(Number(value) as SacUnit)}><SelectTrigger id="sac-timer-unit" className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="3">Unit 3</SelectItem><SelectItem value="4">Unit 4</SelectItem></SelectContent></Select></Field>
+                <Field><FieldLabel htmlFor="sac-timer-unit">Unit</FieldLabel><Select value={unit === null ? null : String(unit)} onValueChange={(value) => setUnit(value === null ? null : Number(value) as SacUnit)}><SelectTrigger id="sac-timer-unit" className="w-full"><SelectValue placeholder="Select unit" /></SelectTrigger><SelectContent>{SAC_UNITS.map((option) => <SelectItem key={option} value={String(option)}>Unit {option}</SelectItem>)}</SelectContent></Select></Field>
                 <Field><FieldLabel htmlFor="sac-timer-aos">Area of Study</FieldLabel><Input id="sac-timer-aos" value={areaOfStudy} onChange={(event) => setAreaOfStudy(event.target.value)} placeholder="Optional" /></Field>
                 <Field><FieldLabel htmlFor="sac-timer-date">Date</FieldLabel><Input id="sac-timer-date" type="date" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} required /></Field>
               </div>

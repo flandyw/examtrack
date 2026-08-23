@@ -10,7 +10,7 @@ import { SubjectCombobox } from "@/components/subject-combobox"
 import { PerformanceContextFields } from "@/components/performance-context-fields"
 import { prioritiseSubjects } from "@/lib/subjects"
 import { hasPerformanceContext, type PerformanceContext } from "@/lib/performance-context"
-import { validateSac, type SacRecord, type SacUnit } from "@/lib/sac"
+import { SAC_UNITS, validateSac, type SacRecord, type SacUnit } from "@/lib/sac"
 
 type SacSheetProps = {
   open: boolean
@@ -29,7 +29,7 @@ export function SacSheet({ open, subjects, preferredSubjects, initialRecord, onO
   const [provider, setProvider] = useState(initialRecord?.provider ?? "")
   const [title, setTitle] = useState(initialRecord?.title ?? "")
   const [sacNumber, setSacNumber] = useState(initialRecord?.sacNumber ?? "")
-  const [unit, setUnit] = useState<SacUnit>(initialRecord?.unit ?? 3)
+  const [unit, setUnit] = useState<SacUnit | null>(initialRecord?.unit ?? null)
   const [areaOfStudy, setAreaOfStudy] = useState(initialRecord?.areaOfStudy ?? "")
   const [scheduledAt, setScheduledAt] = useState(initialRecord?.scheduledAt ?? today())
   const [durationMinutes, setDurationMinutes] = useState(initialRecord?.durationMinutes ?? 50)
@@ -59,6 +59,10 @@ export function SacSheet({ open, subjects, preferredSubjects, initialRecord, onO
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (unit === null) {
+      setError("Choose the unit for this assessment.")
+      return
+    }
     const parsedScore = score.trim() === "" ? undefined : Number(score)
     const parsedMaximum = maxScore.trim() === "" ? undefined : Number(maxScore)
     const parsedWeighting = weighting.trim() === "" ? undefined : Number(weighting)
@@ -116,7 +120,7 @@ export function SacSheet({ open, subjects, preferredSubjects, initialRecord, onO
             <div className="grid gap-5 sm:grid-cols-[1fr_10rem]">
               <Field>
                 <FieldLabel htmlFor="sac-title">SAC title</FieldLabel>
-                <Input id="sac-title" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Unit 3 outcome assessment" required />
+                <Input id="sac-title" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Outcome assessment" required />
               </Field>
               <Field>
                 <FieldLabel htmlFor="sac-number">SAC number <span className="text-muted-foreground">(optional)</span></FieldLabel>
@@ -126,10 +130,11 @@ export function SacSheet({ open, subjects, preferredSubjects, initialRecord, onO
             <div className="grid gap-5 sm:grid-cols-2">
               <Field>
                 <FieldLabel htmlFor="sac-unit">Unit</FieldLabel>
-                <Select value={String(unit)} onValueChange={(value) => setUnit(Number(value) as SacUnit)}>
-                  <SelectTrigger id="sac-unit" className="w-full"><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectItem value="3">Unit 3</SelectItem><SelectItem value="4">Unit 4</SelectItem></SelectContent>
+                <Select value={unit === null ? null : String(unit)} onValueChange={(value) => setUnit(value === null ? null : Number(value) as SacUnit)}>
+                  <SelectTrigger id="sac-unit" className="w-full"><SelectValue placeholder="Select unit" /></SelectTrigger>
+                  <SelectContent>{SAC_UNITS.map((option) => <SelectItem key={option} value={String(option)}>Unit {option}</SelectItem>)}</SelectContent>
                 </Select>
+                <FieldDescription>Set this per subject so accelerated students can mix Units 1/2 and 3/4.</FieldDescription>
               </Field>
               <Field>
                 <FieldLabel htmlFor="sac-aos">Area of Study <span className="text-muted-foreground">(optional)</span></FieldLabel>

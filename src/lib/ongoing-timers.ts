@@ -1,5 +1,5 @@
 import { isFocalTimerLink, type FocalTimerLink } from "@/lib/focal-timer"
-import type { SacUnit } from "@/lib/sac"
+import { isSacUnit, type SacUnit } from "@/lib/sac"
 
 export type ExamTimerSession = {
   subject: string
@@ -88,7 +88,7 @@ export function isSacTimerSession(value: unknown): value is SacTimerSession {
   if (!isRecord(value) || !hasValidSharedTimerState(value)) return false
   return isOptionalString(value.recordId) &&
     isOptionalString(value.sacNumber) &&
-    (value.unit === 3 || value.unit === 4) &&
+    isSacUnit(value.unit) &&
     isOptionalString(value.areaOfStudy) &&
     typeof value.scheduledAt === "string" &&
     typeof value.durationMinutes === "number" && Number.isFinite(value.durationMinutes) && value.durationMinutes > 0 &&

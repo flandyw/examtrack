@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { buildSacSubjectStats, computeSacStats, getSacTimerState, getUpcomingSacs, isSacRecord, migrateSacRecords, sacPercentage, validateSac, type SacRecord } from "../src/lib/sac"
+import { isSacTimerSession } from "../src/lib/ongoing-timers"
 
 const base: SacRecord = {
   id: "sac-1",
@@ -23,16 +24,38 @@ const base: SacRecord = {
 describe("SAC tracking", () => {
   test("validates planned and completed SACs", () => {
     expect(validateSac({ ...base, score: undefined, maxScore: undefined })).toBeNull()
+    expect(validateSac({ ...base, unit: 1 })).toBeNull()
+    expect(validateSac({ ...base, unit: 2 })).toBeNull()
     expect(validateSac({ ...base, score: 51 })).toBe("Mark cannot exceed the maximum.")
     expect(validateSac({ ...base, maxScore: undefined })).toBe("Enter both the mark and maximum, or leave both blank.")
     expect(validateSac({ ...base, provider: "" })).toBe("Subject, school/provider, and SAC title are required.")
+    expect(validateSac({ ...base, unit: 5 as never })).toBe("Unit must be between 1 and 4.")
     expect(isSacRecord(base)).toBe(true)
+    expect(isSacRecord({ ...base, unit: 1 })).toBe(true)
+    expect(isSacRecord({ ...base, unit: 2 })).toBe(true)
     expect(isSacRecord({ ...base, timing: { ...base.timing!, actualSeconds: -1 } })).toBe(false)
   })
 
   test("backfills a school/provider for records saved before the field existed", () => {
     const { provider: _provider, ...legacy } = base
     expect(migrateSacRecords([legacy])).toEqual([{ ...legacy, provider: "School" }])
+    expect(migrateSacRecords([{ ...legacy, unit: 1 }])).toEqual([{ ...legacy, unit: 1, provider: "School" }])
+  })
+
+  test("restores active Units 1/2 timers from local or synced state", () => {
+    const timer = {
+      subject: "Biology",
+      provider: "School",
+      title: "Cells assessment",
+      unit: 1,
+      scheduledAt: "2026-03-12",
+      durationMinutes: 50,
+      maxScore: 40,
+      startedAt: 1_000_000,
+      pausedSeconds: 0,
+    }
+    expect(isSacTimerSession(timer)).toBe(true)
+    expect(isSacTimerSession({ ...timer, unit: 2 })).toBe(true)
   })
 
   test("accepts valid performance context and rejects invalid ratings", () => {

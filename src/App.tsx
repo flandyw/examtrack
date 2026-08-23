@@ -50,8 +50,9 @@ import {
 import { getViewLabel } from "@/lib/navigation"
 import { useReferenceData } from "@/hooks/use-reference-data"
 import { useFocalAccount } from "@/hooks/use-focal-account"
-import { localDate, materialiseTask, type LearningWorkspaceUpdate, type PracticeSession, type StudyGoal } from "@/lib/learning-workspace"
+import { finalisePracticeSession, localDate, materialiseTask, type LearningWorkspaceUpdate, type PracticeSession, type StudyGoal } from "@/lib/learning-workspace"
 import { applyMistakeAutofills, type MistakeAutofill } from "@/lib/mistake-autofill"
+import type { VcaaExplorerPreset } from "@/components/vcaa-explorer"
 
 const ExamSheet = lazy(() =>
   import("@/components/exam-sheet").then((module) => ({ default: module.ExamSheet })),
@@ -115,6 +116,7 @@ export default function App() {
   const [trackerOpen, setTrackerOpen] = useState(false)
   const [commandOpen, setCommandOpen] = useState(false)
   const [practiceSubject, setPracticeSubject] = useState<string | undefined>()
+  const [vcaaSelection, setVcaaSelection] = useState<(VcaaExplorerPreset & { key: string }) | null>(null)
   const importInput = useRef<HTMLInputElement>(null)
   const sync = useSupabaseSync(data, setData)
   const focal = useFocalAccount()
@@ -243,8 +245,8 @@ export default function App() {
 
   function completePracticeSession(session: PracticeSession) {
     if (session.completedAt) return
-    const timestamp = new Date().toISOString()
-    const elapsedSeconds = session.startedAt ? Math.max(0, Math.round((Date.now() - new Date(session.startedAt).getTime()) / 1000)) : undefined
+    const now = new Date()
+    const timestamp = now.toISOString()
     const ratings = new Map(session.questions.flatMap((question) => question.sourceMistakeId && question.rating !== "unattempted" ? [[question.sourceMistakeId, question.rating]] : []))
     setData((current) => ({
       ...current,
@@ -254,7 +256,7 @@ export default function App() {
       }),
       learning: {
         ...current.learning,
-        practiceSessions: current.learning.practiceSessions.map((item) => item.id === session.id ? { ...item, completedAt: timestamp, elapsedSeconds, updatedAt: timestamp } : item),
+        practiceSessions: current.learning.practiceSessions.map((item) => item.id === session.id ? finalisePracticeSession(item, now) : item),
         updatedAt: timestamp,
       },
     }))
@@ -318,7 +320,24 @@ export default function App() {
   function saveTimedAttempt(attempt: ExamAttempt) {
     setData((current) => ({ ...current, attempts: [...current.attempts, attempt] }))
     setView("dashboard")
-    toast.success("Timed exam logged")
+    if (attempt.provider.trim().toLowerCase() === "vcaa") {
+      toast.success("Timed VCAA exam logged", {
+        description: "Your mark is ready to compare with official grade distributions.",
+        action: { label: "Compare", onClick: () => openVcaaComparison(attempt) },
+      })
+    } else {
+      toast.success("Timed exam logged")
+    }
+  }
+
+  function openVcaaComparison(attempt: ExamAttempt) {
+    setVcaaSelection({
+      key: attempt.id,
+      subject: attempt.subject,
+      paper: attempt.paper,
+      score: attempt.rawMax > 0 ? attempt.rawScore / attempt.rawMax * 100 : 0,
+    })
+    setView("vcaa")
   }
 
   function saveSac(record: SacRecord) {
@@ -524,10 +543,10 @@ export default function App() {
           {view === "practice" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><PracticeStudio key={practiceSubject ?? "practice"} data={data} initialSubject={practiceSubject} onChange={saveLearning} onComplete={completePracticeSession} onOpenMistakes={() => setView("mistakes")} /></Suspense> : null}
           {view === "mistakes" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><MistakesPage data={data} studies={resourceStudies} onLog={() => openNewMistake()} onEdit={(mistake) => { setEditingMistake(mistake); setMistakeOpen(true) }} onReview={reviewMistake} onToggleSuspend={toggleMistakeSuspension} onDelete={deleteMistake} onImportMistakes={importMistakes} onApplyAutofills={applyAutofills} onSaveInsights={(mistakeInsights) => setData((current) => ({ ...current, mistakeInsights }))} onSaveAlternativeDeck={(alternativeMistakeDeck) => setData((current) => ({ ...current, alternativeMistakeDeck }))} /></Suspense> : null}
           {view === "sacs" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><SacPage records={data.sacRecords} subjects={references.map((reference) => reference.studyName)} preferredSubjects={data.subjects} activeTimer={data.activeSacTimer} onTimerChange={saveActiveSacTimer} onSave={saveSac} onDelete={deleteSac} /></Suspense> : null}
-          {view === "library" ? <>{referencesLoading ? <Skeleton className="h-96 w-full" /> : <Suspense fallback={<Skeleton className="h-96 w-full" />}><ExamLibrary references={references} studies={resourceStudies} attempts={data.attempts} completedExamIds={data.completedExamIds} generatedAt={resourcesGeneratedAt ?? referencesGeneratedAt} preferredSubjects={data.subjects} onToggleCompleted={toggleCompletedExam} onStart={(preset) => { setTimerPreset(preset); setView("timer") }} /></Suspense>}</> : null}
+          {view === "library" ? <>{referencesLoading ? <Skeleton className="h-96 w-full" /> : <Suspense fallback={<Skeleton className="h-96 w-full" />}><ExamLibrary references={references} studies={resourceStudies} attempts={data.attempts} completedExamIds={data.completedExamIds} generatedAt={resourcesGeneratedAt ?? referencesGeneratedAt} preferredSubjects={data.subjects} onToggleCompleted={toggleCompletedExam} onStart={(preset) => { setTimerPreset(preset); setView("timer") }} onCompare={openVcaaComparison} /></Suspense>}</> : null}
           {view === "timer" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><ExamTimer key={timerPreset ? `${timerPreset.subject}-${timerPreset.examYear}-${timerPreset.paper}` : "manual"} references={references} studies={resourceStudies} preferredSubjects={data.subjects} initialExam={timerPreset} activeSession={data.activeExamTimer} onSessionChange={saveActiveExamTimer} onSave={(attempt) => { setTimerPreset(null); saveTimedAttempt(attempt) }} /></Suspense> : null}
           {view === "predictor" ? <>{referencesLoading || scalingStatus === "loading" ? <Skeleton className="h-96 w-full" /> : <Suspense fallback={<Skeleton className="h-96 w-full" />}><StudyScorePredictor data={data} references={references} scalingReferences={scalingReferences} onSaveAtarEstimate={saveAtarEstimate} onDeleteAtarEstimate={deleteAtarEstimate} /></Suspense>}</> : null}
-          {view === "vcaa" ? <>{referencesLoading ? <Skeleton className="h-96 w-full" /> : <Suspense fallback={<Skeleton className="h-96 w-full" />}><VcaaExplorer references={references} attempts={data.attempts} preferredSubjects={data.subjects} /></Suspense>}</> : null}
+          {view === "vcaa" ? <>{referencesLoading ? <Skeleton className="h-96 w-full" /> : <Suspense fallback={<Skeleton className="h-96 w-full" />}><VcaaExplorer key={vcaaSelection?.key ?? "vcaa-default"} references={references} attempts={data.attempts} preferredSubjects={data.subjects} studies={resourceStudies} initialSelection={vcaaSelection} onOpenLibrary={() => setView("library")} onStart={(preset) => { setTimerPreset(preset); setView("timer") }} /></Suspense>}</> : null}
           {view === "settings" ? <Suspense fallback={<Skeleton className="h-96 w-full" />}><SettingsPage sync={sync} focal={focal} subjects={[...new Set(references.map((reference) => reference.studyName))]} selectedSubjects={data.subjects} providers={[...new Set(data.attempts.map((attempt) => attempt.provider))]} examDifficulty={data.examDifficulty} onSubjectsChange={saveSubjects} onExamDifficultyChange={saveExamDifficulty} /></Suspense> : null}
         </main>
       </SidebarInset>

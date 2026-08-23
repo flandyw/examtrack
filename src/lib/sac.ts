@@ -1,6 +1,12 @@
 import { isPerformanceContext, type PerformanceContext } from "@/lib/performance-context"
 
-export type SacUnit = 3 | 4
+export const SAC_UNITS = [1, 2, 3, 4] as const
+
+export type SacUnit = (typeof SAC_UNITS)[number]
+
+export function isSacUnit(value: unknown): value is SacUnit {
+  return typeof value === "number" && SAC_UNITS.includes(value as SacUnit)
+}
 
 export type SacTiming = {
   plannedSeconds: number
@@ -66,7 +72,7 @@ function validNonNegativeNumber(value: unknown) {
 
 export function validateSac(record: Pick<SacRecord, "subject" | "provider" | "title" | "unit" | "scheduledAt" | "durationMinutes" | "score" | "maxScore" | "weighting">): string | null {
   if (!record.subject.trim() || !record.provider.trim() || !record.title.trim()) return "Subject, school/provider, and SAC title are required."
-  if (record.unit !== 3 && record.unit !== 4) return "Unit must be 3 or 4."
+  if (!isSacUnit(record.unit)) return "Unit must be between 1 and 4."
   if (!record.scheduledAt) return "SAC date is required."
   if (!Number.isFinite(record.durationMinutes) || record.durationMinutes <= 0) return "Duration must be greater than zero."
   const hasScore = record.score !== undefined
@@ -98,7 +104,7 @@ export function isSacRecord(value: unknown): value is SacRecord {
     typeof record.provider === "string" &&
     typeof record.title === "string" &&
     (record.sacNumber === undefined || typeof record.sacNumber === "string") &&
-    (record.unit === 3 || record.unit === 4) &&
+    isSacUnit(record.unit) &&
     (record.areaOfStudy === undefined || typeof record.areaOfStudy === "string") &&
     typeof record.scheduledAt === "string" &&
     typeof record.durationMinutes === "number" &&

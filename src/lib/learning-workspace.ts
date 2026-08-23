@@ -67,8 +67,26 @@ export type PracticeSession = {
   updatedAt: string
   completedAt?: string
   startedAt?: string
+  timerStartedAt?: string
+  timerPausedAt?: string
   elapsedSeconds?: number
   archivedAt?: string
+}
+
+export type PracticeSessionTimerState = {
+  elapsedSeconds: number
+  remainingSeconds: number
+  overtimeSeconds: number
+  progress: number
+  isRunning: boolean
+  isPaused: boolean
+}
+
+export type PracticeSessionPlan = {
+  availableQuestions: number
+  selectedQuestions: number
+  totalMarks: number
+  durationMinutes: number
 }
 
 export type LearningPreferences = {
@@ -81,6 +99,7 @@ export type LearningWorkspace = {
   curriculumAreas: CurriculumArea[]
   goals: StudyGoal[]
   practiceSessions: PracticeSession[]
+  practiceSessionTombstones?: Record<string, string>
   preferences: LearningPreferences
   preferencesUpdatedAt?: string
   updatedAt: string
@@ -93,6 +112,7 @@ export const EMPTY_LEARNING_WORKSPACE: LearningWorkspace = {
   curriculumAreas: [],
   goals: [],
   practiceSessions: [],
+  practiceSessionTombstones: {},
   preferences: { dailyMinutes: 60, studyDays: [1, 2, 3, 4, 5, 6] },
   preferencesUpdatedAt: "1970-01-01T00:00:00.000Z",
   updatedAt: "1970-01-01T00:00:00.000Z",
@@ -151,12 +171,16 @@ export function isLearningWorkspace(value: unknown): value is LearningWorkspace 
       typeof session.durationMinutes === "number" && Number.isFinite(session.durationMinutes) && session.durationMinutes > 0 &&
       (session.completedAt === undefined || typeof session.completedAt === "string") &&
       (session.startedAt === undefined || typeof session.startedAt === "string") &&
+      (session.timerStartedAt === undefined || typeof session.timerStartedAt === "string") &&
+      (session.timerPausedAt === undefined || typeof session.timerPausedAt === "string") &&
       (session.elapsedSeconds === undefined || typeof session.elapsedSeconds === "number" && Number.isFinite(session.elapsedSeconds) && session.elapsedSeconds >= 0) &&
       Array.isArray(session.questions) && session.questions.length > 0 && session.questions.every((question: unknown) => isRecord(question) &&
         typeof question.id === "string" && (question.sourceMistakeId === undefined || typeof question.sourceMistakeId === "string") &&
         typeof question.skill === "string" && typeof question.question === "string" && typeof question.answer === "string" &&
         typeof question.marks === "number" && Number.isFinite(question.marks) && question.marks > 0 &&
         ["unattempted", "correct", "needs-review"].includes(String(question.rating)))) &&
+    (value.practiceSessionTombstones === undefined || isRecord(value.practiceSessionTombstones) &&
+      Object.entries(value.practiceSessionTombstones).every(([id, deletedAt]) => id.length > 0 && typeof deletedAt === "string")) &&
     isRecord(value.preferences) && typeof value.preferences.dailyMinutes === "number" && value.preferences.dailyMinutes > 0 &&
     Array.isArray(value.preferences.studyDays) && value.preferences.studyDays.every((day) => Number.isInteger(day) && Number(day) >= 0 && Number(day) <= 6) &&
     (value.preferencesUpdatedAt === undefined || typeof value.preferencesUpdatedAt === "string") &&
@@ -164,7 +188,16 @@ export function isLearningWorkspace(value: unknown): value is LearningWorkspace 
 }
 
 export function migrateLearningWorkspace(value: unknown): LearningWorkspace {
-  return isLearningWorkspace(value) ? value : EMPTY_LEARNING_WORKSPACE
+  const workspace = isLearningWorkspace(value) ? value : EMPTY_LEARNING_WORKSPACE
+  return {
+    ...workspace,
+    practiceSessions: workspace.practiceSessions.map((session) => {
+      const hasTimerState = session.timerStartedAt || session.timerPausedAt || session.elapsedSeconds !== undefined
+      if (session.completedAt || hasTimerState) return session
+      return { ...session, elapsedSeconds: 0, timerPausedAt: session.updatedAt }
+    }),
+    practiceSessionTombstones: { ...(workspace.practiceSessionTombstones ?? {}) },
+  }
 }
 
 function mergeTimestamped<T extends { id: string; updatedAt: string }>(local: T[], remote: T[]) {
@@ -180,14 +213,100 @@ export function mergeLearningWorkspace(local: LearningWorkspace, remote: Learnin
   const localPreferencesUpdatedAt = local.preferencesUpdatedAt ?? local.updatedAt
   const remotePreferencesUpdatedAt = remote.preferencesUpdatedAt ?? remote.updatedAt
   const remoteSettingsWin = remotePreferencesUpdatedAt > localPreferencesUpdatedAt
+  const practiceSessionTombstones = { ...(local.practiceSessionTombstones ?? {}) }
+  for (const [id, deletedAt] of Object.entries(remote.practiceSessionTombstones ?? {})) {
+    if (deletedAt > (practiceSessionTombstones[id] ?? "")) practiceSessionTombstones[id] = deletedAt
+  }
+  const practiceSessions = mergeTimestamped(local.practiceSessions, remote.practiceSessions).filter((session) => {
+    const deletedAt = practiceSessionTombstones[session.id]
+    if (!deletedAt) return true
+    if (deletedAt >= session.updatedAt) return false
+    delete practiceSessionTombstones[session.id]
+    return true
+  })
   return {
     tasks: mergeTimestamped(local.tasks, remote.tasks),
     curriculumAreas: mergeTimestamped(local.curriculumAreas, remote.curriculumAreas),
     goals: mergeTimestamped(local.goals, remote.goals),
-    practiceSessions: mergeTimestamped(local.practiceSessions, remote.practiceSessions),
+    practiceSessions,
+    practiceSessionTombstones,
     preferences: remoteSettingsWin ? remote.preferences : local.preferences,
     preferencesUpdatedAt: remoteSettingsWin ? remotePreferencesUpdatedAt : localPreferencesUpdatedAt,
     updatedAt: remote.updatedAt > local.updatedAt ? remote.updatedAt : local.updatedAt,
+  }
+}
+
+function timestampMilliseconds(value?: string) {
+  if (!value) return null
+  const timestamp = new Date(value).getTime()
+  return Number.isFinite(timestamp) ? timestamp : null
+}
+
+export function getPracticeSessionTimerState(session: PracticeSession, now = new Date()): PracticeSessionTimerState {
+  const accumulated = Math.max(0, Math.floor(session.elapsedSeconds ?? 0))
+  const runningSince = session.timerStartedAt ?? (!session.completedAt && !session.timerPausedAt ? session.startedAt : undefined)
+  const runningSinceMs = timestampMilliseconds(runningSince)
+  const activeSeconds = !session.completedAt && !session.timerPausedAt && runningSinceMs !== null
+    ? Math.max(0, Math.floor((now.getTime() - runningSinceMs) / 1000))
+    : 0
+  const elapsedSeconds = accumulated + activeSeconds
+  const targetSeconds = Math.max(1, Math.round(session.durationMinutes * 60))
+  return {
+    elapsedSeconds,
+    remainingSeconds: Math.max(0, targetSeconds - elapsedSeconds),
+    overtimeSeconds: Math.max(0, elapsedSeconds - targetSeconds),
+    progress: Math.min(100, elapsedSeconds / targetSeconds * 100),
+    isRunning: !session.completedAt && !session.timerPausedAt && runningSinceMs !== null,
+    isPaused: !session.completedAt && Boolean(session.timerPausedAt),
+  }
+}
+
+export function pausePracticeSession(session: PracticeSession, now = new Date()): PracticeSession {
+  if (session.completedAt || session.timerPausedAt) return session
+  const timestamp = now.toISOString()
+  return {
+    ...session,
+    elapsedSeconds: getPracticeSessionTimerState(session, now).elapsedSeconds,
+    timerStartedAt: undefined,
+    timerPausedAt: timestamp,
+    updatedAt: timestamp,
+  }
+}
+
+export function resumePracticeSession(session: PracticeSession, now = new Date()): PracticeSession {
+  if (session.completedAt || (!session.timerPausedAt && (session.timerStartedAt || session.startedAt))) return session
+  const timestamp = now.toISOString()
+  return {
+    ...session,
+    startedAt: session.startedAt ?? timestamp,
+    timerStartedAt: timestamp,
+    timerPausedAt: undefined,
+    elapsedSeconds: Math.max(0, Math.floor(session.elapsedSeconds ?? 0)),
+    updatedAt: timestamp,
+  }
+}
+
+export function finalisePracticeSession(session: PracticeSession, now = new Date()): PracticeSession {
+  if (session.completedAt) return session
+  const timestamp = now.toISOString()
+  return {
+    ...session,
+    completedAt: timestamp,
+    elapsedSeconds: getPracticeSessionTimerState(session, now).elapsedSeconds,
+    timerStartedAt: undefined,
+    timerPausedAt: undefined,
+    updatedAt: timestamp,
+  }
+}
+
+export function deletePracticeSession(workspace: LearningWorkspace, id: string, now = new Date()): LearningWorkspace {
+  if (!workspace.practiceSessions.some((session) => session.id === id)) return workspace
+  const timestamp = now.toISOString()
+  return {
+    ...workspace,
+    practiceSessions: workspace.practiceSessions.filter((session) => session.id !== id),
+    practiceSessionTombstones: { ...(workspace.practiceSessionTombstones ?? {}), [id]: timestamp },
+    updatedAt: timestamp,
   }
 }
 
@@ -392,21 +511,44 @@ export function getGoalProgress(goal: StudyGoal, data: AppData, references: Asse
   return { current, target: goal.target, progress: current === null ? 0 : Math.max(0, Math.min(100, current / goal.target * 100)), gap, label, evidence }
 }
 
-export function createPracticeSession(subject: string, data: AppData, options: { limit?: number; area?: string } = {}, now = new Date()): PracticeSession | null {
-  const limit = Math.max(1, Math.min(12, options.limit ?? 6))
+function getPracticeSources(subject: string, data: AppData, area?: string) {
   const attemptMap = new Map(data.attempts.map((attempt) => [attempt.id, attempt]))
   const mistakes = data.mistakes.filter((mistake) => {
     const sameSubject = attemptMap.get(mistake.attemptId)?.subject.toLowerCase() === subject.toLowerCase()
-    const area = mistake.areaOfStudy ?? mistake.criterion ?? mistake.category
-    return sameSubject && !mistake.suspended && (!options.area || area.toLowerCase() === options.area.toLowerCase())
+    const mistakeArea = mistake.areaOfStudy ?? mistake.criterion ?? mistake.category
+    return sameSubject && !mistake.suspended && (!area || mistakeArea.toLowerCase() === area.toLowerCase())
   }).toSorted((first, second) => {
     const due = (first.dueAt ?? first.createdAt).localeCompare(second.dueAt ?? second.createdAt)
     if (due !== 0) return due
     return (second.lapses ?? 0) - (first.lapses ?? 0) || (second.marksLost ?? 0) - (first.marksLost ?? 0)
   })
   const alternativeMap = new Map((data.alternativeMistakeDeck?.cards ?? []).map((card) => [card.sourceMistakeId, card]))
-  const questions = mistakes.slice(0, limit).map((mistake): PracticeQuestion => {
-    const alternative = alternativeMap.get(mistake.id)
+  return mistakes.map((mistake) => ({ mistake, alternative: alternativeMap.get(mistake.id) }))
+}
+
+function practiceLimit(limit?: number) {
+  return Math.max(1, Math.min(12, limit ?? 6))
+}
+
+function practiceDuration(marks: number) {
+  return Math.max(15, Math.min(90, marks * 2))
+}
+
+export function getPracticeSessionPlan(subject: string, data: AppData, options: { limit?: number; area?: string } = {}): PracticeSessionPlan {
+  const sources = getPracticeSources(subject, data, options.area)
+  const selected = sources.slice(0, practiceLimit(options.limit))
+  const totalMarks = selected.reduce((total, { mistake, alternative }) => total + (alternative?.marks ?? mistake.totalMarks ?? 1), 0)
+  return {
+    availableQuestions: sources.length,
+    selectedQuestions: selected.length,
+    totalMarks,
+    durationMinutes: selected.length ? practiceDuration(totalMarks) : 0,
+  }
+}
+
+export function createPracticeSession(subject: string, data: AppData, options: { limit?: number; area?: string } = {}, now = new Date()): PracticeSession | null {
+  const sources = getPracticeSources(subject, data, options.area).slice(0, practiceLimit(options.limit))
+  const questions = sources.map(({ mistake, alternative }): PracticeQuestion => {
     return {
       id: crypto.randomUUID(),
       sourceMistakeId: mistake.id,
@@ -419,14 +561,17 @@ export function createPracticeSession(subject: string, data: AppData, options: {
   })
   if (!questions.length) return null
   const timestamp = now.toISOString()
+  const totalMarks = questions.reduce((total, question) => total + question.marks, 0)
   return {
     id: crypto.randomUUID(),
     title: `${subject} targeted practice`,
     subject,
-    durationMinutes: Math.max(15, Math.min(90, questions.reduce((total, question) => total + question.marks * 2, 0))),
+    durationMinutes: practiceDuration(totalMarks),
     questions,
     createdAt: timestamp,
     startedAt: timestamp,
+    timerStartedAt: timestamp,
+    elapsedSeconds: 0,
     updatedAt: timestamp,
   }
 }
