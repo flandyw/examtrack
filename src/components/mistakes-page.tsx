@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { BookOpenCheck, FileDown, FileJson, Merge, NotebookPen, Plus, Search, Shuffle, SkipForward, Sparkles } from "lucide-react"
 import { toast } from "sonner"
 
@@ -11,14 +11,6 @@ import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import {
-  Combobox,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxInput,
-  ComboboxItem,
-  ComboboxList,
-} from "@/components/ui/combobox"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
@@ -44,9 +36,10 @@ import {
   getEmptyMistakeFields,
   getMistakeFieldValues,
   hasEmptyMistakeFields,
+  countMistakeFieldMergePlan,
   summarizeMistakeAutofills,
   type MistakeAutofill,
-  type MistakeFieldMerge,
+  type MistakeFieldMergePlan,
   type MistakeMergeField,
 } from "@/lib/mistake-autofill"
 import { formatChatGPTProgress, type ChatGPTProgress } from "@/lib/mistake-ai-core"
@@ -65,7 +58,7 @@ type MistakesPageProps = {
   onDelete: (mistake: Mistake) => void
   onImportMistakes: (mistakes: Mistake[]) => void
   onApplyAutofills: (autofills: MistakeAutofill[]) => void
-  onMergeField: (merge: MistakeFieldMerge) => void
+  onApplyMergePlan: (plan: MistakeFieldMergePlan) => void
   onSaveInsights: (insights: NonNullable<AppData["mistakeInsights"]>) => void
   onSaveAlternativeDeck: (deck: NonNullable<AppData["alternativeMistakeDeck"]>) => void
 }
@@ -333,107 +326,104 @@ const MERGE_FIELD_LABELS: Record<MistakeMergeField, string> = {
 function MistakeFieldMergeDialog({
   mistakes,
   onOpenChange,
-  onMerge,
+  onApply,
 }: {
   mistakes: Mistake[]
   onOpenChange: (open: boolean) => void
-  onMerge: (merge: MistakeFieldMerge) => void
+  onApply: (plan: MistakeFieldMergePlan) => void
 }) {
   const [field, setField] = useState<MistakeMergeField>("areaOfStudy")
-  const [source, setSource] = useState("")
-  const [target, setTarget] = useState("")
+  const [analysing, setAnalysing] = useState(false)
+  const [progress, setProgress] = useState<ChatGPTProgress | null>(null)
+  const [plan, setPlan] = useState<MistakeFieldMergePlan | null>(null)
   const values = useMemo(() => getMistakeFieldValues(mistakes, field), [field, mistakes])
-  const targetOptions = useMemo(() => values.map(({ value }) => value).filter((value) => value !== source), [source, values])
-  const sourceCount = values.find(({ value }) => value === source)?.count ?? 0
-  const normalizedTarget = target.trim()
-  const canMerge = sourceCount > 0 && Boolean(normalizedTarget) && source !== normalizedTarget
-  const mergeDescription = !source
-    ? `Choose the ${MERGE_FIELD_LABELS[field].toLocaleLowerCase()} label you want to consolidate.`
-    : !sourceCount
-      ? "That label is no longer used."
-      : !normalizedTarget
-        ? `${sourceCount} mistake${sourceCount === 1 ? " uses" : "s use"} this label. Choose the label to keep.`
-        : source === normalizedTarget
-          ? "Choose a different label to merge into."
-          : `${sourceCount} mistake${sourceCount === 1 ? "" : "s"} will use the new label.`
+  const counts = useMemo(() => new Map(values.map(({ value, count }) => [value, count])), [values])
+  const affectedCount = plan ? countMistakeFieldMergePlan(mistakes, plan) : 0
 
   function changeField(next: MistakeMergeField) {
     setField(next)
-    setSource("")
-    setTarget("")
+    setPlan(null)
+    setProgress(null)
   }
 
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!canMerge) return
-    onMerge({ field, source, target: normalizedTarget })
-    toast.success(`Merged ${sourceCount} ${sourceCount === 1 ? "mistake" : "mistakes"} into “${normalizedTarget}”`)
+  async function analyse() {
+    setAnalysing(true)
+    setPlan(null)
+    setProgress(null)
+    try {
+      const { generateMistakeFieldMergePlan } = await import("@/lib/mistake-ai")
+      setPlan(await generateMistakeFieldMergePlan(field, values, setProgress))
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not analyse these labels.")
+    } finally {
+      setAnalysing(false)
+    }
+  }
+
+  function apply() {
+    if (!plan?.merges.length || !affectedCount) return
+    onApply(plan)
+    toast.success(`Merged ${affectedCount} ${affectedCount === 1 ? "mistake" : "mistakes"} using the reviewed AI plan`)
     onOpenChange(false)
   }
 
   return (
     <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Merge topic and criterion labels</DialogTitle>
+          <DialogTitle>Merge fields with ChatGPT</DialogTitle>
           <DialogDescription>
-            Replace one label everywhere it appears. Other mistake fields are left unchanged.
+            ChatGPT finds duplicate or overlapping labels and proposes a consolidation plan. Review the plan before applying it.
           </DialogDescription>
         </DialogHeader>
-        <form id="mistake-field-merge" onSubmit={submit}>
-          <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="mistake-merge-field">Field</FieldLabel>
-              <Select value={field} onValueChange={(value) => changeField((value ?? "areaOfStudy") as MistakeMergeField)}>
-                <SelectTrigger id="mistake-merge-field" className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="areaOfStudy">Topic / Area of Study</SelectItem>
-                  <SelectItem value="criterion">Assessment criterion</SelectItem>
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="mistake-merge-source">Merge label</FieldLabel>
-              <Select disabled={!values.length} value={source || null} onValueChange={(value) => {
-                setSource(value ?? "")
-                setTarget("")
-              }}>
-                <SelectTrigger id="mistake-merge-source" className="w-full"><SelectValue placeholder={values.length ? `Choose a ${field === "criterion" ? "criterion" : "topic / Area of Study"} label` : `No ${MERGE_FIELD_LABELS[field].toLocaleLowerCase()} labels yet`} /></SelectTrigger>
-                <SelectContent>
-                  {values.map(({ value, count }) => <SelectItem key={value} value={value}>{value} ({count})</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="mistake-merge-target">Into label</FieldLabel>
-              <Combobox
-                items={targetOptions}
-                value={targetOptions.includes(normalizedTarget) ? normalizedTarget : null}
-                inputValue={target}
-                onInputValueChange={setTarget}
-                onValueChange={(value) => setTarget(value ?? "")}
-                autoHighlight
-              >
-                <ComboboxInput id="mistake-merge-target" className="w-full" placeholder="Choose or enter the label to keep" showClear disabled={!source} />
-                <ComboboxContent>
-                  <ComboboxEmpty>Enter a new label to use it.</ComboboxEmpty>
-                  <ComboboxList>{(item) => <ComboboxItem key={item} value={item}>{item}</ComboboxItem>}</ComboboxList>
-                </ComboboxContent>
-              </Combobox>
-              <FieldDescription>{mergeDescription}</FieldDescription>
-            </Field>
-          </FieldGroup>
-        </form>
+        <FieldGroup>
+          <Field>
+            <FieldLabel htmlFor="mistake-merge-field">Field to analyse</FieldLabel>
+            <Select disabled={analysing} value={field} onValueChange={(value) => changeField((value ?? "areaOfStudy") as MistakeMergeField)}>
+              <SelectTrigger id="mistake-merge-field" className="w-full">
+                <SelectValue>{MERGE_FIELD_LABELS[field]}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="areaOfStudy">Topic / Area of Study</SelectItem>
+                <SelectItem value="criterion">Assessment criterion</SelectItem>
+              </SelectContent>
+            </Select>
+            <FieldDescription>{values.length} distinct label{values.length === 1 ? "" : "s"} available for analysis.</FieldDescription>
+          </Field>
+          {analysing && progress ? <p role="status" aria-live="polite" className="text-sm text-muted-foreground tabular-nums">{formatChatGPTProgress(progress)}</p> : null}
+          {plan ? (
+            <div className="grid gap-2" aria-live="polite">
+              <p className="text-sm font-medium">Suggested merge plan</p>
+              {plan.merges.length ? (
+                <div className="max-h-72 overflow-y-auto rounded-lg border">
+                  {plan.merges.map(({ source, target }) => (
+                    <div key={source} className="grid gap-1 border-b px-3 py-2 text-sm last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-center sm:gap-3">
+                      <span className="min-w-0 break-words">{source} <span className="text-muted-foreground">({counts.get(source) ?? 0})</span></span>
+                      <span className="text-muted-foreground" aria-hidden="true">→</span>
+                      <span className="min-w-0 break-words font-medium">{target}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : <p className="rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">ChatGPT found no duplicate or overlapping labels that should be merged.</p>}
+              {plan.merges.length ? <FieldDescription>{affectedCount} mistake{affectedCount === 1 ? "" : "s"} will change. All other fields remain unchanged.</FieldDescription> : null}
+            </div>
+          ) : null}
+        </FieldGroup>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button type="submit" form="mistake-field-merge" disabled={!canMerge}><Merge />Merge {sourceCount || "labels"}</Button>
+          {plan ? (
+            <>
+              <Button type="button" variant="outline" onClick={() => void analyse()} disabled={analysing || values.length < 2}><Sparkles />Analyse again</Button>
+              {plan.merges.length ? <Button type="button" onClick={apply} disabled={!affectedCount}><Merge />Merge {affectedCount} mistake{affectedCount === 1 ? "" : "s"}</Button> : null}
+            </>
+          ) : <Button type="button" onClick={() => void analyse()} disabled={analysing || values.length < 2}><Sparkles />{analysing ? "Analysing…" : "Generate merge plan"}</Button>}
         </DialogFooter>
       </DialogContent>
     </Dialog>
   )
 }
 
-export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleSuspend, onDelete, onImportMistakes, onApplyAutofills, onMergeField, onSaveInsights, onSaveAlternativeDeck }: MistakesPageProps) {
+export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleSuspend, onDelete, onImportMistakes, onApplyAutofills, onApplyMergePlan, onSaveInsights, onSaveAlternativeDeck }: MistakesPageProps) {
   const [subject, setSubject] = useState("all")
   const [mathsExamFilter, setMathsExamFilter] = useState<MathsExamFilter>("all")
   const [tab, setTab] = useState<PageTab>("study")
@@ -677,7 +667,7 @@ export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleS
           onSaveMistakes={onImportMistakes}
         />
       ) : null}
-      {mergeOpen ? <MistakeFieldMergeDialog mistakes={data.mistakes} onOpenChange={setMergeOpen} onMerge={onMergeField} /> : null}
+      {mergeOpen ? <MistakeFieldMergeDialog mistakes={data.mistakes} onOpenChange={setMergeOpen} onApply={onApplyMergePlan} /> : null}
     </div>
   )
 }

@@ -35,9 +35,13 @@ export const MISTAKE_MERGE_FIELDS = ["areaOfStudy", "criterion"] as const
 export type MistakeMergeField = (typeof MISTAKE_MERGE_FIELDS)[number]
 
 export type MistakeFieldMerge = {
-  field: MistakeMergeField
   source: string
   target: string
+}
+
+export type MistakeFieldMergePlan = {
+  field: MistakeMergeField
+  merges: MistakeFieldMerge[]
 }
 
 export type MistakeFieldValue = {
@@ -133,20 +137,52 @@ export function getMistakeFieldValues(mistakes: Mistake[], field: MistakeMergeFi
     .toSorted((first, second) => first.value.localeCompare(second.value, undefined, { sensitivity: "base" }))
 }
 
-export function countMistakeFieldMerge(mistakes: Mistake[], merge: MistakeFieldMerge) {
-  const source = merge.source.trim()
-  const target = merge.target.trim()
-  if (!source || !target || source === target) return 0
-  return mistakes.filter((mistake) => mistake[merge.field]?.trim() === source).length
+export function createMistakeFieldMergePlan(
+  field: MistakeMergeField,
+  values: MistakeFieldValue[],
+  suggestions: MistakeFieldMerge[],
+): MistakeFieldMergePlan {
+  const available = new Set(values.map(({ value }) => value))
+  const direct = new Map<string, string>()
+
+  for (const suggestion of suggestions) {
+    const source = suggestion.source.trim()
+    const target = suggestion.target.trim()
+    if (!available.has(source)) throw new Error(`ChatGPT returned an unknown source label: “${source || "(empty)"}”.`)
+    if (!target) throw new Error("ChatGPT returned an empty target label.")
+    if (source === target) continue
+    if (direct.has(source)) throw new Error(`ChatGPT returned more than one merge for “${source}”.`)
+    direct.set(source, target)
+  }
+
+  function finalTarget(source: string) {
+    const visited = new Set([source])
+    let target = direct.get(source)!
+    while (direct.has(target)) {
+      if (visited.has(target)) throw new Error("ChatGPT returned a circular merge plan. Generate a new plan and try again.")
+      visited.add(target)
+      target = direct.get(target)!
+    }
+    return target
+  }
+
+  return {
+    field,
+    merges: [...direct].map(([source]) => ({ source, target: finalTarget(source) })),
+  }
 }
 
-/** Replaces one exact topic or criterion label while preserving every other field. */
-export function mergeMistakeFieldValues(mistakes: Mistake[], merge: MistakeFieldMerge, updatedAt: string): Mistake[] {
-  const source = merge.source.trim()
-  const target = merge.target.trim()
-  if (!source || !target || source === target) return mistakes
+export function countMistakeFieldMergePlan(mistakes: Mistake[], plan: MistakeFieldMergePlan) {
+  const sources = new Set(plan.merges.map(({ source }) => source.trim()))
+  return mistakes.filter((mistake) => sources.has(mistake[plan.field]?.trim() ?? "")).length
+}
 
-  return mistakes.map((mistake) => mistake[merge.field]?.trim() === source
-    ? { ...mistake, [merge.field]: target, updatedAt }
-    : mistake)
+/** Applies an AI-reviewed label plan while preserving every unrelated field. */
+export function applyMistakeFieldMergePlan(mistakes: Mistake[], plan: MistakeFieldMergePlan, updatedAt: string): Mistake[] {
+  const targets = new Map(plan.merges.map(({ source, target }) => [source.trim(), target.trim()]))
+
+  return mistakes.map((mistake) => {
+    const target = targets.get(mistake[plan.field]?.trim() ?? "")
+    return target ? { ...mistake, [plan.field]: target, updatedAt } : mistake
+  })
 }

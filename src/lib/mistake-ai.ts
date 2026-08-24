@@ -2,7 +2,15 @@ import { createChatGPTProxyProvider } from "@opencoredev/loginwithchatgpt-ai"
 import { jsonSchema, Output, streamText } from "ai"
 import { MISTAKE_CATEGORIES, type AlternativeMistakeCard, type ExamAttempt, type Mistake, type MistakeInsights } from "@/lib/exam-data"
 import { loadAISettings, supportsStreamedAnalysis } from "@/lib/ai-settings"
-import { getEmptyMistakeFields, type MistakeAutofill } from "@/lib/mistake-autofill"
+import {
+  createMistakeFieldMergePlan,
+  getEmptyMistakeFields,
+  type MistakeAutofill,
+  type MistakeFieldMerge,
+  type MistakeFieldMergePlan,
+  type MistakeFieldValue,
+  type MistakeMergeField,
+} from "@/lib/mistake-autofill"
 import { findVcaaExamForAttempt, type VcaaStudyResources } from "@/lib/vcaa-resources"
 import {
   createChatGPTProgressHandler,
@@ -193,6 +201,55 @@ export async function autofillMistakeFields(
   }
 
   return autofills
+}
+
+export async function generateMistakeFieldMergePlan(
+  field: MistakeMergeField,
+  values: MistakeFieldValue[],
+  onProgress?: (progress: ChatGPTProgress) => void,
+): Promise<MistakeFieldMergePlan> {
+  if (values.length < 2) return { field, merges: [] }
+
+  onProgress?.({ phase: "connecting", tokens: 0, estimated: true, reasoning: false })
+  const { chatgpt, model, settings } = await getChatGPTModel()
+  const sources = values.map(({ value }) => value)
+  const schema = jsonSchema<{ merges: MistakeFieldMerge[] }>({
+    type: "object",
+    additionalProperties: false,
+    required: ["merges"],
+    properties: {
+      merges: {
+        type: "array",
+        maxItems: values.length,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["source", "target"],
+          properties: {
+            source: { type: "string", enum: sources },
+            target: { type: "string" },
+          },
+        },
+      },
+    },
+  })
+  let streamError: unknown
+  const result = streamText({
+    model: chatgpt(model),
+    output: Output.object({ schema, name: "mistake_field_merge_plan" }),
+    maxOutputTokens: Math.max(800, values.length * 80),
+    headers: { "x-login-with-chatgpt-reasoning-effort": settings.reasoningEffort },
+    onChunk: createChatGPTProgressHandler(onProgress),
+    onError: ({ error }) => { streamError = error },
+    prompt: `Review the student's existing ${field === "criterion" ? "assessment criterion" : "topic / Area of Study"} labels and propose a conservative consolidation plan. Merge only labels that are semantically equivalent, trivial spelling/capitalisation variants, or unnecessarily verbose versions of the same concept. Preserve labels that describe genuinely distinct curriculum topics or assessment criteria, even when they are related. Prefer an existing concise label as the target when suitable, but you may create a clearer concise target. Return only changed source-to-target mappings, use each source at most once, and do not create circular mappings. An empty merges array is correct when no consolidation is clearly useful. Labels and usage counts: ${JSON.stringify(values)}`,
+  })
+
+  try {
+    return createMistakeFieldMergePlan(field, values, (await result.output).merges)
+  } catch (error) {
+    if (streamError) throw new Error(formatMistakeAIError(streamError), { cause: streamError })
+    throw error
+  }
 }
 
 type GeneratedAlternativeMistakeCard = Omit<AlternativeMistakeCard, "generatedAt">

@@ -2,10 +2,11 @@ import { describe, expect, test } from "bun:test"
 import { createChatGPTProgressHandler, formatMistakeAIError, orderMistakeBatchDrafts, selectChatGPTModel, validateMistakeBatchImages, validateMistakeImage, validateMistakeImages } from "../src/lib/mistake-ai"
 import {
   applyMistakeAutofills,
-  countMistakeFieldMerge,
+  applyMistakeFieldMergePlan,
+  countMistakeFieldMergePlan,
+  createMistakeFieldMergePlan,
   getEmptyMistakeFields,
   getMistakeFieldValues,
-  mergeMistakeFieldValues,
   summarizeMistakeAutofills,
   type MistakeAutofill,
 } from "../src/lib/mistake-autofill"
@@ -192,25 +193,59 @@ describe("mistake field merging", () => {
     ])
   })
 
-  test("merges one exact label without changing the other field", () => {
-    const merge = { field: "areaOfStudy" as const, source: "Quadratics", target: "Polynomial functions" }
-    expect(countMistakeFieldMerge(mistakes, merge)).toBe(2)
-    const updated = mergeMistakeFieldValues(mistakes, merge, "later")
+  test("applies a multi-label AI plan without changing the other field", () => {
+    const values = getMistakeFieldValues(mistakes, "areaOfStudy")
+    const plan = createMistakeFieldMergePlan("areaOfStudy", values, [
+      { source: "Quadratics", target: "Polynomial functions" },
+      { source: "Polynomials", target: "Polynomial functions" },
+    ])
+    expect(countMistakeFieldMergePlan(mistakes, plan)).toBe(3)
+    const updated = applyMistakeFieldMergePlan(mistakes, plan, "later")
     expect(updated.map(({ areaOfStudy, criterion, updatedAt }) => ({ areaOfStudy, criterion, updatedAt }))).toEqual([
       { areaOfStudy: "Polynomial functions", criterion: "Accuracy", updatedAt: "later" },
       { areaOfStudy: "Polynomial functions", criterion: "Working", updatedAt: "later" },
-      { areaOfStudy: "Polynomials", criterion: "Accuracy", updatedAt: "2026-01-01T00:00:00.000Z" },
+      { areaOfStudy: "Polynomial functions", criterion: "Accuracy", updatedAt: "later" },
     ])
   })
 
   test("can merge assessment criteria without changing topics", () => {
-    const merge = { field: "criterion" as const, source: "Accuracy", target: "Precise execution" }
-    expect(countMistakeFieldMerge(mistakes, merge)).toBe(2)
-    const updated = mergeMistakeFieldValues(mistakes, merge, "later")
+    const plan = createMistakeFieldMergePlan("criterion", getMistakeFieldValues(mistakes, "criterion"), [
+      { source: "Accuracy", target: "Precise execution" },
+    ])
+    expect(countMistakeFieldMergePlan(mistakes, plan)).toBe(2)
+    const updated = applyMistakeFieldMergePlan(mistakes, plan, "later")
     expect(updated.map(({ areaOfStudy, criterion }) => ({ areaOfStudy, criterion }))).toEqual([
       { areaOfStudy: "  Quadratics ", criterion: "Precise execution" },
       { areaOfStudy: "Quadratics", criterion: "Working" },
       { areaOfStudy: "Polynomials", criterion: "Precise execution" },
     ])
+  })
+
+  test("flattens chained suggestions and validates unsafe AI output", () => {
+    const values = getMistakeFieldValues(mistakes, "areaOfStudy")
+    expect(createMistakeFieldMergePlan("areaOfStudy", values, [
+      { source: "Quadratics", target: "Polynomials" },
+      { source: "Polynomials", target: "Polynomial functions" },
+    ]).merges).toEqual([
+      { source: "Quadratics", target: "Polynomial functions" },
+      { source: "Polynomials", target: "Polynomial functions" },
+    ])
+    expect(() => createMistakeFieldMergePlan("areaOfStudy", values, [
+      { source: "Unknown", target: "Polynomial functions" },
+    ])).toThrow("unknown source label")
+    expect(() => createMistakeFieldMergePlan("areaOfStudy", values, [
+      { source: "Quadratics", target: "Polynomials" },
+      { source: "Polynomials", target: "Quadratics" },
+    ])).toThrow("circular merge plan")
+  })
+
+  test("rechecks current labels when the reviewed plan is applied", () => {
+    const plan = createMistakeFieldMergePlan("areaOfStudy", getMistakeFieldValues(mistakes, "areaOfStudy"), [
+      { source: "Quadratics", target: "Polynomial functions" },
+    ])
+    const editedWhileAnalysing = { ...mistakes[0], areaOfStudy: "Functions" }
+    const updated = applyMistakeFieldMergePlan([editedWhileAnalysing, mistakes[1]], plan, "later")
+    expect(updated[0]).toBe(editedWhileAnalysing)
+    expect(updated[1]).toEqual({ ...mistakes[1], areaOfStudy: "Polynomial functions", updatedAt: "later" })
   })
 })
