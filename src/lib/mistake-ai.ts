@@ -80,27 +80,43 @@ async function getChatGPTModel() {
 
 function mistakeContext(mistakes: Mistake[], attempts: ExamAttempt[]) {
   const attemptMap = new Map(attempts.map((attempt) => [attempt.id, attempt]))
-  return mistakes.map((mistake) => ({
-    id: mistake.id,
-    subject: attemptMap.get(mistake.attemptId)?.subject,
-    exam: attemptMap.get(mistake.attemptId)?.title,
-    question: mistake.question,
-    questionText: mistake.questionText,
-    category: mistake.category,
-    explanation: mistake.explanation,
-    correction: mistake.correction,
-    areaOfStudy: mistake.areaOfStudy,
-    criterion: mistake.criterion,
-    marksLost: mistake.marksLost,
-    totalMarks: mistake.totalMarks,
-    resolved: mistake.resolved,
-    reviewState: mistake.reviewState,
-    dueAt: mistake.dueAt,
-    intervalDays: mistake.intervalDays,
-    lapses: mistake.lapses,
-    suspended: mistake.suspended,
-    reviews: mistake.reviewHistory?.map(({ result }) => result),
-  }))
+  const normalizeQuestionLabel = (value: string) => value.trim().toLocaleLowerCase().replace(/\bquestion\b/g, "q").replace(/[^a-z0-9]+/g, "")
+  return mistakes.map((mistake) => {
+    const attempt = attemptMap.get(mistake.attemptId)
+    const questionKey = normalizeQuestionLabel(mistake.question)
+    const matchingResults = attempt?.questionResults?.filter((result) => normalizeQuestionLabel(result.label) === questionKey) ?? []
+    const assessmentResult = matchingResults.length === 1 ? matchingResults[0] : undefined
+    return {
+      id: mistake.id,
+      subject: attempt?.subject,
+      exam: attempt?.title,
+      paper: attempt?.paper,
+      question: mistake.question,
+      questionText: mistake.questionText,
+      category: mistake.category,
+      explanation: mistake.explanation,
+      correction: mistake.correction,
+      areaOfStudy: mistake.areaOfStudy,
+      criterion: mistake.criterion,
+      marksLost: mistake.marksLost,
+      totalMarks: mistake.totalMarks,
+      assessmentResult: assessmentResult ? {
+        label: assessmentResult.label,
+        areaOfStudy: assessmentResult.areaOfStudy,
+        criterion: assessmentResult.criterion,
+        marksLost: assessmentResult.maxMarks - assessmentResult.marksAwarded,
+        totalMarks: assessmentResult.maxMarks,
+        examinerNote: assessmentResult.examinerNote,
+      } : undefined,
+      resolved: mistake.resolved,
+      reviewState: mistake.reviewState,
+      dueAt: mistake.dueAt,
+      intervalDays: mistake.intervalDays,
+      lapses: mistake.lapses,
+      suspended: mistake.suspended,
+      reviews: mistake.reviewHistory?.map(({ result }) => result),
+    }
+  })
 }
 
 export async function autofillMistakeFields(
@@ -152,15 +168,23 @@ export async function autofillMistakeFields(
       ...mistakeContext([mistake], attempts)[0],
       emptyFields: getEmptyMistakeFields(mistake),
     }))
+    let streamError: unknown
     const result = streamText({
       model: chatgpt(model),
       output: Output.object({ schema, name: "mistake_autofills" }),
       maxOutputTokens: Math.max(1200, batch.length * 450),
       headers: { "x-login-with-chatgpt-reasoning-effort": settings.reasoningEffort },
       onChunk: createChatGPTProgressHandler(onProgress),
-      prompt: `Fill the listed emptyFields in each student's mistake record using only the supplied record and exam context. Return exactly one object for every id. For fields not listed in emptyFields, return null: existing values must never be rewritten. Keep question as a short item label, questionText as a self-contained faithful reconstruction, explanation as a concise diagnosis, correction as an actionable improved response or method, areaOfStudy and criterion as concise labels, and marks as realistic non-negative numbers with totalMarks greater than zero and marksLost no greater than totalMarks. Do not pretend to know missing exact wording or marks; return null when the evidence is insufficient. Records: ${JSON.stringify(records)}`,
+      onError: ({ error }) => { streamError = error },
+      prompt: `Fill the listed emptyFields in each student's mistake record using only the supplied record and exam context. Return exactly one object for every id. For fields not listed in emptyFields, return null: existing values must never be rewritten. Treat assessmentResult, when supplied, as the source of truth for its topic, criterion, and marks. Keep question as a short item label, questionText as a self-contained faithful reconstruction, explanation as a concise diagnosis, correction as an actionable improved response or method, areaOfStudy and criterion as concise labels, and marks as realistic non-negative numbers with totalMarks greater than zero and marksLost no greater than totalMarks. Do not pretend to know missing exact wording or marks; return null when the evidence is insufficient. Records: ${JSON.stringify(records)}`,
     })
-    const batchAutofills = (await result.output).autofills
+    let batchAutofills: MistakeAutofill[]
+    try {
+      batchAutofills = (await result.output).autofills
+    } catch (error) {
+      const cause = streamError ?? error
+      throw new Error(formatMistakeAIError(cause), { cause })
+    }
     const returnedIds = new Set(batchAutofills.map((autofill) => autofill.id))
     if (batchAutofills.length !== ids.length || returnedIds.size !== ids.length || ids.some((id) => !returnedIds.has(id))) {
       throw new Error("ChatGPT did not return one autofill result for every mistake. Try again.")

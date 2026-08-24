@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react"
-import { BookOpenCheck, FileDown, FileJson, NotebookPen, Plus, Search, Shuffle, SkipForward, Sparkles } from "lucide-react"
+import { useEffect, useMemo, useState, type FormEvent } from "react"
+import { BookOpenCheck, FileDown, FileJson, Merge, NotebookPen, Plus, Search, Shuffle, SkipForward, Sparkles } from "lucide-react"
 import { toast } from "sonner"
 
 import { MarkdownPreview } from "@/components/markdown-preview"
@@ -11,7 +11,17 @@ import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+} from "@/components/ui/combobox"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
+import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Progress } from "@/components/ui/progress"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -30,7 +40,15 @@ import {
 import { downloadMistakesPdf } from "@/lib/mistake-pdf"
 import { isTechSplitMathsSubject, matchesMathsExamFilter, type MathsExamFilter } from "@/lib/mistake-filters"
 import { buildRevisionPriorities, buildRevisionQueue, formatReviewInterval, getMistakeProgress, getMistakeQueueCounts } from "@/lib/mistake-review"
-import { getEmptyMistakeFields, hasEmptyMistakeFields, type MistakeAutofill } from "@/lib/mistake-autofill"
+import {
+  getEmptyMistakeFields,
+  getMistakeFieldValues,
+  hasEmptyMistakeFields,
+  summarizeMistakeAutofills,
+  type MistakeAutofill,
+  type MistakeFieldMerge,
+  type MistakeMergeField,
+} from "@/lib/mistake-autofill"
 import { formatChatGPTProgress, type ChatGPTProgress } from "@/lib/mistake-ai-core"
 import { findVcaaExamForAttempt, type VcaaStudyResources } from "@/lib/vcaa-resources"
 
@@ -47,6 +65,7 @@ type MistakesPageProps = {
   onDelete: (mistake: Mistake) => void
   onImportMistakes: (mistakes: Mistake[]) => void
   onApplyAutofills: (autofills: MistakeAutofill[]) => void
+  onMergeField: (merge: MistakeFieldMerge) => void
   onSaveInsights: (insights: NonNullable<AppData["mistakeInsights"]>) => void
   onSaveAlternativeDeck: (deck: NonNullable<AppData["alternativeMistakeDeck"]>) => void
 }
@@ -306,7 +325,115 @@ function BrowseCard({ mistake, attempt, studies, onEdit, onToggleSuspend, onDele
   )
 }
 
-export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleSuspend, onDelete, onImportMistakes, onApplyAutofills, onSaveInsights, onSaveAlternativeDeck }: MistakesPageProps) {
+const MERGE_FIELD_LABELS: Record<MistakeMergeField, string> = {
+  areaOfStudy: "Topic / Area of Study",
+  criterion: "Assessment criterion",
+}
+
+function MistakeFieldMergeDialog({
+  mistakes,
+  onOpenChange,
+  onMerge,
+}: {
+  mistakes: Mistake[]
+  onOpenChange: (open: boolean) => void
+  onMerge: (merge: MistakeFieldMerge) => void
+}) {
+  const [field, setField] = useState<MistakeMergeField>("areaOfStudy")
+  const [source, setSource] = useState("")
+  const [target, setTarget] = useState("")
+  const values = useMemo(() => getMistakeFieldValues(mistakes, field), [field, mistakes])
+  const targetOptions = useMemo(() => values.map(({ value }) => value).filter((value) => value !== source), [source, values])
+  const sourceCount = values.find(({ value }) => value === source)?.count ?? 0
+  const normalizedTarget = target.trim()
+  const canMerge = sourceCount > 0 && Boolean(normalizedTarget) && source !== normalizedTarget
+  const mergeDescription = !source
+    ? `Choose the ${MERGE_FIELD_LABELS[field].toLocaleLowerCase()} label you want to consolidate.`
+    : !sourceCount
+      ? "That label is no longer used."
+      : !normalizedTarget
+        ? `${sourceCount} mistake${sourceCount === 1 ? " uses" : "s use"} this label. Choose the label to keep.`
+        : source === normalizedTarget
+          ? "Choose a different label to merge into."
+          : `${sourceCount} mistake${sourceCount === 1 ? "" : "s"} will use the new label.`
+
+  function changeField(next: MistakeMergeField) {
+    setField(next)
+    setSource("")
+    setTarget("")
+  }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!canMerge) return
+    onMerge({ field, source, target: normalizedTarget })
+    toast.success(`Merged ${sourceCount} ${sourceCount === 1 ? "mistake" : "mistakes"} into “${normalizedTarget}”`)
+    onOpenChange(false)
+  }
+
+  return (
+    <Dialog open onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Merge topic and criterion labels</DialogTitle>
+          <DialogDescription>
+            Replace one label everywhere it appears. Other mistake fields are left unchanged.
+          </DialogDescription>
+        </DialogHeader>
+        <form id="mistake-field-merge" onSubmit={submit}>
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="mistake-merge-field">Field</FieldLabel>
+              <Select value={field} onValueChange={(value) => changeField((value ?? "areaOfStudy") as MistakeMergeField)}>
+                <SelectTrigger id="mistake-merge-field" className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="areaOfStudy">Topic / Area of Study</SelectItem>
+                  <SelectItem value="criterion">Assessment criterion</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="mistake-merge-source">Merge label</FieldLabel>
+              <Select disabled={!values.length} value={source || null} onValueChange={(value) => {
+                setSource(value ?? "")
+                setTarget("")
+              }}>
+                <SelectTrigger id="mistake-merge-source" className="w-full"><SelectValue placeholder={values.length ? `Choose a ${field === "criterion" ? "criterion" : "topic / Area of Study"} label` : `No ${MERGE_FIELD_LABELS[field].toLocaleLowerCase()} labels yet`} /></SelectTrigger>
+                <SelectContent>
+                  {values.map(({ value, count }) => <SelectItem key={value} value={value}>{value} ({count})</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="mistake-merge-target">Into label</FieldLabel>
+              <Combobox
+                items={targetOptions}
+                value={targetOptions.includes(normalizedTarget) ? normalizedTarget : null}
+                inputValue={target}
+                onInputValueChange={setTarget}
+                onValueChange={(value) => setTarget(value ?? "")}
+                autoHighlight
+              >
+                <ComboboxInput id="mistake-merge-target" className="w-full" placeholder="Choose or enter the label to keep" showClear disabled={!source} />
+                <ComboboxContent>
+                  <ComboboxEmpty>Enter a new label to use it.</ComboboxEmpty>
+                  <ComboboxList>{(item) => <ComboboxItem key={item} value={item}>{item}</ComboboxItem>}</ComboboxList>
+                </ComboboxContent>
+              </Combobox>
+              <FieldDescription>{mergeDescription}</FieldDescription>
+            </Field>
+          </FieldGroup>
+        </form>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button type="submit" form="mistake-field-merge" disabled={!canMerge}><Merge />Merge {sourceCount || "labels"}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleSuspend, onDelete, onImportMistakes, onApplyAutofills, onMergeField, onSaveInsights, onSaveAlternativeDeck }: MistakesPageProps) {
   const [subject, setSubject] = useState("all")
   const [mathsExamFilter, setMathsExamFilter] = useState<MathsExamFilter>("all")
   const [tab, setTab] = useState<PageTab>("study")
@@ -314,6 +441,7 @@ export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleS
   const [browserFilter, setBrowserFilter] = useState<BrowserFilter>("all")
   const [exporting, setExporting] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+  const [mergeOpen, setMergeOpen] = useState(false)
   const [autofilling, setAutofilling] = useState(false)
   const [autofillProgress, setAutofillProgress] = useState<ChatGPTProgress | null>(null)
   const attemptMap = useMemo(() => new Map(data.attempts.map((attempt) => [attempt.id, attempt])), [data.attempts])
@@ -335,6 +463,7 @@ export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleS
   const alternativeCount = useMemo(() => data.alternativeMistakeDeck?.cards.filter((card) => visibleMistakes.some((mistake) => mistake.id === card.sourceMistakeId)).length ?? 0, [data.alternativeMistakeDeck, visibleMistakes])
   const autofillCandidates = useMemo(() => data.mistakes.filter(hasEmptyMistakeFields), [data.mistakes])
   const emptyFieldCount = useMemo(() => autofillCandidates.reduce((total, mistake) => total + getEmptyMistakeFields(mistake).length, 0), [autofillCandidates])
+  const hasMergeableFields = useMemo(() => data.mistakes.some((mistake) => Boolean(mistake.areaOfStudy?.trim() || mistake.criterion?.trim())), [data.mistakes])
   const browsedMistakes = useMemo(() => {
     const normalizedSearch = search.trim().toLocaleLowerCase()
     const schedules = new Map(visibleMistakes.map((mistake) => [mistake.id, getMistakeSchedule(mistake)]))
@@ -404,8 +533,13 @@ export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleS
     try {
       const { autofillMistakeFields } = await import("@/lib/mistake-ai")
       const autofills = await autofillMistakeFields(autofillCandidates, data.attempts, setAutofillProgress)
+      const summary = summarizeMistakeAutofills(data.mistakes, autofills)
+      if (!summary.fieldCount) {
+        toast("ChatGPT could not infer any of the empty fields from the available mistake and exam details.")
+        return
+      }
       onApplyAutofills(autofills)
-      toast.success(`Autofilled empty fields across ${autofills.length} mistake${autofills.length === 1 ? "" : "s"}`)
+      toast.success(`Autofilled ${summary.fieldCount} field${summary.fieldCount === 1 ? "" : "s"} across ${summary.mistakeCount} mistake${summary.mistakeCount === 1 ? "" : "s"}`)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not autofill mistake fields.")
     } finally {
@@ -417,6 +551,7 @@ export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleS
     <div className="grid gap-6">
       <PageHeader title="Mistakes" description="Study the cards due today, reveal the correction, then grade how easily you recalled it.">
         <Button variant="outline" onClick={() => void autofillEmptyFields()} disabled={!autofillCandidates.length || autofilling} title={emptyFieldCount ? `${emptyFieldCount} empty field${emptyFieldCount === 1 ? "" : "s"} across ${autofillCandidates.length} mistakes` : "All mistake fields are filled"}><Sparkles />{autofilling ? "Autofilling…" : `Autofill empty fields${autofillCandidates.length ? ` (${autofillCandidates.length})` : ""}`}</Button>
+        <Button variant="outline" onClick={() => setMergeOpen(true)} disabled={!hasMergeableFields}><Merge />Merge fields</Button>
         <Button variant="outline" onClick={() => void exportWorksheet()} disabled={!worksheetMistakes.length || exporting}><FileDown />{exporting ? "Creating PDF..." : "Export worksheet"}</Button>
         <Button variant="outline" onClick={() => setImportOpen(true)} disabled={!data.attempts.length}><FileJson />Import from chatbot</Button>
         <Button onClick={onLog} disabled={!data.attempts.length}><Plus />Log mistake</Button>
@@ -542,6 +677,7 @@ export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleS
           onSaveMistakes={onImportMistakes}
         />
       ) : null}
+      {mergeOpen ? <MistakeFieldMergeDialog mistakes={data.mistakes} onOpenChange={setMergeOpen} onMerge={onMergeField} /> : null}
     </div>
   )
 }

@@ -1,6 +1,14 @@
 import { describe, expect, test } from "bun:test"
 import { createChatGPTProgressHandler, formatMistakeAIError, orderMistakeBatchDrafts, selectChatGPTModel, validateMistakeBatchImages, validateMistakeImage, validateMistakeImages } from "../src/lib/mistake-ai"
-import { applyMistakeAutofills, getEmptyMistakeFields, type MistakeAutofill } from "../src/lib/mistake-autofill"
+import {
+  applyMistakeAutofills,
+  countMistakeFieldMerge,
+  getEmptyMistakeFields,
+  getMistakeFieldValues,
+  mergeMistakeFieldValues,
+  summarizeMistakeAutofills,
+  type MistakeAutofill,
+} from "../src/lib/mistake-autofill"
 import type { Mistake } from "../src/lib/exam-data"
 
 describe("mistake image analysis", () => {
@@ -115,5 +123,94 @@ describe("mistake field autofill", () => {
       marksLost: -2,
     }
     expect(applyMistakeAutofills([current], [autofill], "later")[0]).toBe(current)
+  })
+
+  test("applies generated marks only as a complete valid pair", () => {
+    const baseAutofill: MistakeAutofill = {
+      id: mistake.id,
+      question: null,
+      questionText: null,
+      explanation: null,
+      correction: null,
+      areaOfStudy: null,
+      criterion: null,
+      totalMarks: 4,
+      marksLost: null,
+    }
+    const withoutMarks = { ...mistake, explanation: "Existing explanation", marksLost: undefined }
+
+    expect(applyMistakeAutofills([withoutMarks], [baseAutofill], "later")[0]).toBe(withoutMarks)
+    const completeAutofill = { ...baseAutofill, marksLost: 2 }
+    expect(applyMistakeAutofills([withoutMarks], [completeAutofill], "later")[0]).toEqual({
+      ...withoutMarks,
+      totalMarks: 4,
+      marksLost: 2,
+      updatedAt: "later",
+    })
+  })
+
+  test("reports only fields that can actually be applied", () => {
+    const autofill: MistakeAutofill = {
+      id: mistake.id,
+      question: null,
+      questionText: "Ignored replacement",
+      explanation: "  Added explanation  ",
+      correction: null,
+      areaOfStudy: null,
+      criterion: "Accuracy",
+      totalMarks: 4,
+      marksLost: null,
+    }
+    expect(summarizeMistakeAutofills([mistake], [autofill])).toEqual({ fieldCount: 3, mistakeCount: 1 })
+  })
+})
+
+describe("mistake field merging", () => {
+  const makeMistake = (id: string, areaOfStudy?: string, criterion?: string): Mistake => ({
+    id,
+    attemptId: "exam-1",
+    question: id,
+    category: "Concept",
+    explanation: "Explanation",
+    correction: "Correction",
+    areaOfStudy,
+    criterion,
+    resolved: false,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  })
+  const mistakes = [
+    makeMistake("one", "  Quadratics ", "Accuracy"),
+    makeMistake("two", "Quadratics", "Working"),
+    makeMistake("three", "Polynomials", "Accuracy"),
+  ]
+
+  test("lists non-empty labels with usage counts", () => {
+    expect(getMistakeFieldValues(mistakes, "areaOfStudy")).toEqual([
+      { value: "Polynomials", count: 1 },
+      { value: "Quadratics", count: 2 },
+    ])
+  })
+
+  test("merges one exact label without changing the other field", () => {
+    const merge = { field: "areaOfStudy" as const, source: "Quadratics", target: "Polynomial functions" }
+    expect(countMistakeFieldMerge(mistakes, merge)).toBe(2)
+    const updated = mergeMistakeFieldValues(mistakes, merge, "later")
+    expect(updated.map(({ areaOfStudy, criterion, updatedAt }) => ({ areaOfStudy, criterion, updatedAt }))).toEqual([
+      { areaOfStudy: "Polynomial functions", criterion: "Accuracy", updatedAt: "later" },
+      { areaOfStudy: "Polynomial functions", criterion: "Working", updatedAt: "later" },
+      { areaOfStudy: "Polynomials", criterion: "Accuracy", updatedAt: "2026-01-01T00:00:00.000Z" },
+    ])
+  })
+
+  test("can merge assessment criteria without changing topics", () => {
+    const merge = { field: "criterion" as const, source: "Accuracy", target: "Precise execution" }
+    expect(countMistakeFieldMerge(mistakes, merge)).toBe(2)
+    const updated = mergeMistakeFieldValues(mistakes, merge, "later")
+    expect(updated.map(({ areaOfStudy, criterion }) => ({ areaOfStudy, criterion }))).toEqual([
+      { areaOfStudy: "  Quadratics ", criterion: "Precise execution" },
+      { areaOfStudy: "Quadratics", criterion: "Working" },
+      { areaOfStudy: "Polynomials", criterion: "Precise execution" },
+    ])
   })
 })
