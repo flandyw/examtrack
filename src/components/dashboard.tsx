@@ -61,6 +61,9 @@ const ImprovementOutlookChart = lazy(() =>
 const FocusPriorityChart = lazy(() =>
   import("@/components/focus-priority-chart").then((module) => ({ default: module.FocusPriorityChart })),
 )
+const PaperPerformanceAnalytics = lazy(() =>
+  import("@/components/paper-performance-analytics").then((module) => ({ default: module.PaperPerformanceAnalytics })),
+)
 const ReviewForecastChart = lazy(() =>
   import("@/components/review-forecast-chart").then((module) => ({ default: module.ReviewForecastChart })),
 )
@@ -662,6 +665,9 @@ export function Dashboard(props: DashboardProps) {
             <div className="grid gap-6">
               <ImprovementSignals data={data} />
               <PerformanceContextInsights attempts={data.attempts} sacRecords={data.sacRecords} />
+              <Suspense fallback={<Skeleton className="h-96 w-full" />}>
+                <PaperPerformanceAnalytics attempts={data.attempts} mistakes={data.mistakes} />
+              </Suspense>
               <Suspense fallback={<Skeleton className="h-96 w-full" />}>
                 <PerformanceTrendChart attempts={data.attempts} references={references} preferredSubjects={data.subjects} difficultySettings={data.examDifficulty} />
               </Suspense>

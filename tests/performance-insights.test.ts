@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { ExamAttempt, Mistake } from "../src/lib/exam-data"
-import { buildFocusPriorities, buildReviewForecast, buildSubjectOutlooks } from "../src/lib/performance-insights"
+import { buildFocusPriorities, buildLostMarksAttribution, buildPaperWeaknessMatrix, buildReviewForecast, buildSubjectOutlooks } from "../src/lib/performance-insights"
 import { buildPerformanceContextAnalysis, isPerformanceContext } from "../src/lib/performance-context"
 import type { SacRecord } from "../src/lib/sac"
 
@@ -66,6 +66,62 @@ describe("performance insights", () => {
     expect(priorities.map((item) => item.areaOfStudy)).toEqual(["Algebra", "Calculus"])
     expect(priorities[0]).toMatchObject({ missedMarks: 4, unresolvedMistakes: 1, lapses: 2 })
     expect(priorities[0].priorityScore).toBeGreaterThan(priorities[1].priorityScore)
+  })
+
+  test("can keep Exam 1 and Exam 2 focus evidence in separate buckets", () => {
+    const exam1 = {
+      ...makeAttempt("exam-1", 60, "2026-07-10"),
+      questionResults: [{ id: "q1", label: "1", marksAwarded: 2, maxMarks: 10, areaOfStudy: "Probability", confidence: "low" as const }],
+    }
+    const exam2 = {
+      ...makeAttempt("exam-2", 90, "2026-07-11"),
+      paper: "Examination 2",
+      questionResults: [{ id: "q2", label: "1", marksAwarded: 9, maxMarks: 10, areaOfStudy: "Probability", confidence: "high" as const }],
+    }
+
+    const priorities = buildFocusPriorities([exam1, exam2], [], { bucketByPaper: true })
+
+    expect(priorities).toHaveLength(2)
+    expect(priorities[0]).toMatchObject({ paper: "Exam 1", areaOfStudy: "Probability", mastery: 20 })
+    expect(priorities[1]).toMatchObject({ paper: "Examination 2", areaOfStudy: "Probability", mastery: 90 })
+  })
+
+  test("builds a paper weakness matrix with technology diagnosis and repeat mistakes", () => {
+    const exam1 = {
+      ...makeAttempt("exam-1", 80, "2026-07-10"),
+      questionResults: [{ id: "q1", label: "4b", marksAwarded: 2, maxMarks: 10, areaOfStudy: "Probability", confidence: "low" as const }],
+    }
+    const exam2 = {
+      ...makeAttempt("exam-2", 95, "2026-07-11"),
+      paper: "Exam 2",
+      questionResults: [{ id: "q2", label: "3", marksAwarded: 9, maxMarks: 10, areaOfStudy: "Probability", confidence: "high" as const }],
+    }
+    const mistakes = [
+      makeMistake({ id: "m1", attemptId: "exam-1", areaOfStudy: "Probability", question: "4b", criterion: "Choose distribution" }),
+      makeMistake({ id: "m2", attemptId: "exam-1", areaOfStudy: "Probability", question: "4b", criterion: "Choose distribution" }),
+      makeMistake({ id: "m3", attemptId: "exam-2", areaOfStudy: "Probability", question: "3", category: "Calculator" }),
+    ]
+
+    const row = buildPaperWeaknessMatrix([exam1, exam2], mistakes, "Mathematical Methods")[0]
+
+    expect(row).toMatchObject({ areaOfStudy: "Probability", gap: 70, diagnosis: "tech-free fragile" })
+    expect(row.exam1).toMatchObject({ mastery: 20, missedMarks: 8, mistakeCount: 2, repeatMistakes: 1, evidenceConfidence: "low" })
+    expect(row.exam1.questions[0].mistakeCategories).toEqual(["Concept"])
+    expect(row.exam2).toMatchObject({ mastery: 90, mistakeCount: 1 })
+  })
+
+  test("attributes recent lost marks by category and paper while exposing gaps", () => {
+    const exam1 = { ...makeAttempt("exam-1", 80, "2026-07-10"), rawMax: 100 }
+    const exam2 = { ...makeAttempt("exam-2", 90, "2026-07-11"), rawMax: 100, paper: "Exam 2" }
+    const attribution = buildLostMarksAttribution([exam1, exam2], [
+      makeMistake({ id: "m1", attemptId: "exam-1", category: "Algebra", marksLost: 8 }),
+      makeMistake({ id: "m2", attemptId: "exam-2", category: "Calculator", marksLost: 5 }),
+    ], "Mathematical Methods")
+
+    expect(attribution).toMatchObject({ attemptCount: 2, totalLost: 30, attributedMarks: 13, unattributedMarks: 17 })
+    expect(attribution.categories).toContainEqual({ category: "Algebra", marks: 8, exam1: 8, exam2: 0, other: 0 })
+    expect(attribution.categories).toContainEqual({ category: "Calculator", marks: 5, exam1: 0, exam2: 5, other: 0 })
+    expect(attribution.categories).toContainEqual({ category: "Unattributed", marks: 17, exam1: 12, exam2: 5, other: 0 })
   })
 
   test("puts overdue reviews into today and schedules upcoming cards by day", () => {
