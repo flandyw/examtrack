@@ -329,6 +329,11 @@ export function useSupabaseSync(data: AppData, setData: Dispatch<SetStateAction<
     configured: Boolean(supabase),
     user,
     status: status === "synced" && syncedData.current !== data ? "syncing" as const : status,
+    retry: () => {
+      if (!user) return
+      setStatus("syncing")
+      setRefresh((value) => value + 1)
+    },
     signIn: async (email: string, password: string) => {
       if (!supabase) throw new Error("Supabase is not configured.")
       const { error } = await supabase.auth.signInWithPassword({ email, password })

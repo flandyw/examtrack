@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
-import { Check, Clock3, Pause, Play, RotateCcw } from "lucide-react"
+import { Check, Clock3, Pause, Play, SlidersHorizontal, Trash2 } from "lucide-react"
+import { toast } from "sonner"
+import { ExamConditionsDialog } from "@/components/exam-conditions-dialog"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -45,6 +47,8 @@ type ExamTimerProps = {
   initialExam?: ExamTimerPreset | null
   activeSession?: ExamTimerSession
   saveStatus: string
+  syncAction?: { label: string; onClick: () => void }
+  onLeave: () => void
   onSessionChange: (session: ExamTimerSession | undefined) => void
   onSave: (attempt: ExamAttempt) => void
 }
@@ -73,7 +77,7 @@ function SuggestionButton({ suggestion, onClick, showProvider = false }: {
   )
 }
 
-export function ExamTimer({ references, studies, preferredSubjects, initialExam, activeSession, saveStatus, onSessionChange, onSave }: ExamTimerProps) {
+export function ExamTimer({ references, studies, preferredSubjects, initialExam, activeSession, saveStatus, syncAction, onLeave, onSessionChange, onSave }: ExamTimerProps) {
   const session = activeSession ?? null
   const [subject, setSubject] = useState(initialExam?.subject ?? firstPreferredSubject(references.map((item) => item.studyName), preferredSubjects))
   const [provider, setProvider] = useState(initialExam?.provider ?? "VCAA")
@@ -84,6 +88,8 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
   const [writingMinutes, setWritingMinutes] = useState(initialExam?.writingMinutes ?? initialConditions?.writingMinutes ?? 120)
   const [marks, setMarks] = useState(initialExam?.marks ?? initialConditions?.marks ?? 100)
   const [markingOpen, setMarkingOpen] = useState(false)
+  const [conditionsOpen, setConditionsOpen] = useState(false)
+  const [discardOpen, setDiscardOpen] = useState(false)
   const [rawScore, setRawScore] = useState(0)
   const [rawMax, setRawMax] = useState(initialExam?.marks ?? initialConditions?.marks ?? 100)
   const [comment, setComment] = useState("")
@@ -166,10 +172,14 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
   }
 
   function reset() {
-    if (!window.confirm("Discard this timed exam and return to setup?")) return
     if (session?.focal) void publishFocalTimer(session.focal, "delete")
     saveSession(undefined)
     setMarkingOpen(false)
+    setDiscardOpen(false)
+    setQuestionResults([])
+    setRawScore(0)
+    setComment("")
+    setPerformanceContext({})
   }
 
   function skipReading() {
@@ -179,14 +189,14 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
   }
 
   function pause() {
-    if (!session) return
+    if (!session || session.pausedAt !== undefined) return
     const next = pauseExamSession(session)
     saveSession(next)
     if (next.focal) void publishFocalTimer(next.focal, "in-progress")
   }
 
   function resume() {
-    if (!session) return
+    if (!session || session.pausedAt === undefined) return
     const next = resumeExamSession(session)
     saveSession(next)
     if (next.focal) void publishFocalTimer(next.focal, "in-progress")
@@ -360,17 +370,31 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
   return (
     <WorkspacePage>
       <PageHeader title={session.title} description={`${session.subject} · ${session.readingMinutes} min reading · ${session.writingMinutes} min writing · ${session.marks} marks`}>
-        <Button variant="ghost" onClick={reset}><RotateCcw />Discard</Button>
-        <Button variant="outline" onClick={session.pausedAt ? resume : pause}>{session.pausedAt ? <Play /> : <Pause />}{session.pausedAt ? "Resume exam" : "Pause and save"}</Button>
-        <Button onClick={openMarking}><Check />Finish & mark</Button>
+        <Button variant="outline" onClick={() => setConditionsOpen(true)}><SlidersHorizontal />Edit conditions</Button>
+        <Button variant={session.pausedAt !== undefined ? "default" : "outline"} onClick={session.pausedAt !== undefined ? resume : pause}>{session.pausedAt !== undefined ? <Play /> : <Pause />}{session.pausedAt !== undefined ? "Resume exam" : "Pause and save"}</Button>
+        <Button variant={session.pausedAt !== undefined ? "outline" : "default"} onClick={openMarking}><Check />Finish & mark</Button>
       </PageHeader>
 
-      {session.pausedAt !== undefined ? <Alert><Pause /><AlertTitle>Exam paused</AlertTitle><AlertDescription>{saveStatus} Your timer and question progress are preserved. Resume when you’re ready.</AlertDescription></Alert> : null}
-      {session.focal ? <Alert><Clock3 /><AlertTitle>Focal study logging active</AlertTitle><AlertDescription>Timer changes are queued and mirrored when your separate Focal account is connected and online.</AlertDescription></Alert> : null}
+      <Card className="gap-3" aria-label="Session save status">
+        <CardContent className="grid gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="font-medium">{session.pausedAt !== undefined ? "Paused · ready when you are" : "Exam in progress"}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{session.pausedAt !== undefined ? `Paused ${new Date(session.pausedAt).toLocaleString()}. Your remaining time is frozen.` : "Pause before leaving to stop the clock."}</p>
+            </div>
+            <Button variant="outline" onClick={() => { pause(); onLeave() }}>{session.pausedAt !== undefined ? "Back to dashboard" : "Pause, save & exit"}</Button>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 border-t pt-3">
+            <p role="status" className="flex-1 text-sm text-muted-foreground">{saveStatus}</p>
+            {syncAction ? <Button size="sm" variant="outline" onClick={syncAction.onClick}>{syncAction.label}</Button> : null}
+          </div>
+          {session.focal ? <p className="text-xs text-muted-foreground">Focal logging: paused time is excluded. Updates wait here until your Focal account is connected and online.</p> : null}
+        </CardContent>
+      </Card>
 
       <section className="grid gap-6 py-6 text-center">
         <div>
-          <p className={overtime ? "text-sm font-medium text-destructive" : "text-sm font-medium text-muted-foreground"}>{phaseLabel}</p>
+          <p className={overtime ? "text-sm font-medium text-destructive" : "text-sm font-medium text-muted-foreground"}>{session.pausedAt !== undefined ? "Paused · " : ""}{phaseLabel}</p>
           <p role="timer" className={overtime ? "mt-2 text-7xl font-semibold tracking-tight text-destructive tabular-nums sm:text-8xl" : "mt-2 text-7xl font-semibold tracking-tight tabular-nums sm:text-8xl"}>
             {overtime ? `+${formatTimer(timer.overtimeSeconds)}` : formatTimer(timer.remainingSeconds)}
           </p>
@@ -396,7 +420,21 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
         onChange={(workspaceItems) => saveSession({ ...session, workspaceItems })}
       />
 
-      {overtime ? <Alert variant="destructive"><Clock3 /><AlertTitle>Writing time has ended</AlertTitle><AlertDescription>The timer is now recording overtime. Finish and mark when you put your pen down.</AlertDescription></Alert> : null}
+      {overtime ? <Alert variant="destructive"><Clock3 /><AlertTitle>Writing time has ended</AlertTitle><AlertDescription>{session.pausedAt !== undefined ? "Overtime is paused. Resume to continue, adjust conditions, or finish and mark." : "The timer is now recording overtime. Finish and mark when you put your pen down."}</AlertDescription></Alert> : null}
+
+      <div className="flex justify-end"><Button variant="ghost" size="sm" onClick={() => setDiscardOpen(true)}><Trash2 />Discard exam</Button></div>
+      <Dialog open={discardOpen} onOpenChange={setDiscardOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Discard this exam?</DialogTitle><DialogDescription>This removes your timer, question progress, and linked Focal study session. Pause and save to keep your work for later.</DialogDescription></DialogHeader>
+          <DialogFooter><Button variant="outline" onClick={() => setDiscardOpen(false)}>Keep exam</Button><Button variant="destructive" onClick={reset}>Discard exam</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {conditionsOpen ? <ExamConditionsDialog session={session} now={now.getTime()} onClose={() => setConditionsOpen(false)} onSave={(next) => {
+        saveSession(next)
+        setRawMax(next.marks)
+        if (next.focal) void publishFocalTimer(next.focal, "in-progress")
+        toast.success("Exam conditions updated")
+      }} /> : null}
 
       <Dialog open={markingOpen} onOpenChange={(open) => open ? setMarkingOpen(true) : closeMarking()}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-4xl">
@@ -435,7 +473,7 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
             </FieldGroup>
           </form>
           <DialogFooter>
-            <Button variant="outline" onClick={closeMarking}>Keep timing</Button>
+            <Button variant="outline" onClick={closeMarking}>Back to paused exam</Button>
             <Button type="submit" form="timer-marking-form">Log exam attempt</Button>
           </DialogFooter>
         </DialogContent>

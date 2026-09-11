@@ -19,6 +19,30 @@ export type ExamTimerSession = {
 
 export type ExamWorkspaceStatus = "not-started" | "in-progress" | "flagged" | "done"
 
+export type ExamSessionConditions = Pick<ExamTimerSession, "readingMinutes" | "writingMinutes" | "marks">
+
+export function updateExamSessionConditions(session: ExamTimerSession, conditions: ExamSessionConditions, now = Date.now()): ExamTimerSession {
+  const { readingMinutes, writingMinutes, marks } = conditions
+  if (!Number.isFinite(readingMinutes) || readingMinutes < 0 || readingMinutes > 180) throw new Error("Reading time must be between 0 and 180 minutes.")
+  if (!Number.isFinite(writingMinutes) || writingMinutes < 1 || writingMinutes > 360) throw new Error("Writing time must be between 1 and 360 minutes.")
+  if (!Number.isFinite(marks) || marks < 0.5 || marks > 500) throw new Error("Total marks must be between 0.5 and 500.")
+  if (![readingMinutes, writingMinutes, marks].every((value) => Number.isInteger(value * 2))) throw new Error("Use whole or half minutes and marks.")
+  const mappedMarks = (session.workspaceItems ?? []).reduce((total, item) => total + item.marks, 0)
+  if (marks < mappedMarks) throw new Error(`Your questions use ${mappedMarks} marks. Adjust the question map before reducing the total below ${mappedMarks}.`)
+  const elapsed = Math.max(0, (session.pausedAt ?? now) - session.startedAt)
+  // Once writing has started, changing reading allocation must not reset it
+  // or reinterpret writing time as reading time.
+  const writingStarted = elapsed >= session.readingMinutes * 60_000
+  return {
+    ...session,
+    readingMinutes,
+    writingMinutes,
+    marks,
+    startedAt: writingStarted ? session.startedAt + (session.readingMinutes - readingMinutes) * 60_000 : session.startedAt,
+    focal: session.focal ? { ...session.focal, plannedSeconds: Math.round((readingMinutes + writingMinutes) * 60) } : undefined,
+  }
+}
+
 export function pauseExamSession(session: ExamTimerSession, now = Date.now()): ExamTimerSession {
   if (session.pausedAt !== undefined) return session
   return { ...session, pausedAt: now, focal: session.focal ? pauseFocalTimer(session.focal, new Date(now)) : undefined }
