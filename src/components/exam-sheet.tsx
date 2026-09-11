@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState, type FormEvent } from "react"
+import { ExamProgressionPanel, type ExamProgressionProps } from "@/components/exam-progression"
 import { Button } from "@/components/ui/button"
 import { SubjectCombobox } from "@/components/subject-combobox"
 import { DiscardChangesDialog } from "@/components/discard-changes-dialog"
@@ -22,7 +23,7 @@ import { firstPreferredSubject, prioritiseSubjects } from "@/lib/subjects"
 import { hasPerformanceContext, type PerformanceContext } from "@/lib/performance-context"
 import type { VcaaStudyResources } from "@/lib/vcaa-resources"
 
-type ExamSheetProps = {
+type ExamSheetProps = ExamProgressionProps & {
   open: boolean
   references: AssessmentReference[]
   attempts: ExamAttempt[]
@@ -61,7 +62,7 @@ function SuggestionButton({ suggestion, selected, onClick, showProvider = false 
   )
 }
 
-export function ExamSheet({ open, references, attempts, studies, preferredSubjects, comparisonYear, difficultySettings, initialAttempt, onOpenChange, onSave }: ExamSheetProps) {
+export function ExamSheet({ progression, onProgressionChange, open, references, attempts, studies, preferredSubjects, comparisonYear, difficultySettings, initialAttempt, onOpenChange, onSave }: ExamSheetProps) {
   const subjects = useMemo(
     () => prioritiseSubjects(references.map((item) => item.studyName), preferredSubjects),
     [references, preferredSubjects],
@@ -189,7 +190,7 @@ export function ExamSheet({ open, references, attempts, studies, preferredSubjec
         </SheetHeader>
         <form id="exam-form" className="px-4 pb-4" onSubmit={submit}>
           <FieldGroup>
-            {suggestions.length || companySuggestions.length ? (
+            {!initialAttempt ? (
               <section className="grid gap-4 rounded-lg border bg-muted/20 p-4" aria-labelledby="log-exam-suggestions-title">
                 <div>
                   <h3 id="log-exam-suggestions-title" className="text-sm font-medium">Suggested next exams</h3>
@@ -200,6 +201,7 @@ export function ExamSheet({ open, references, attempts, studies, preferredSubjec
                     {" "}Choose one to fill the details below.
                   </p>
                 </div>
+                <ExamProgressionPanel progression={progression} onProgressionChange={onProgressionChange} attempts={attempts} subjects={preferredSubjects} onSelect={applySuggestion} />
                 {suggestions.length ? <div className="grid gap-2"><p className="text-xs font-medium text-muted-foreground">Official VCAA papers</p><div className="grid gap-2 sm:grid-cols-2">{suggestions.map((suggestion) => <SuggestionButton key={`${suggestion.subject}-${suggestion.provider}-${suggestion.examYear}-${suggestion.paper}`} suggestion={suggestion} selected={isSelected(suggestion)} onClick={applySuggestion} />)}</div></div> : null}
                 {companySuggestions.length ? <div className="grid gap-2"><p className="text-xs font-medium text-muted-foreground">Company exam progression</p><div className="grid gap-2 sm:grid-cols-2">{companySuggestions.map((suggestion) => <SuggestionButton key={`${suggestion.subject}-${suggestion.provider}-${suggestion.examYear}-${suggestion.paper}`} suggestion={suggestion} selected={isSelected(suggestion)} onClick={applySuggestion} showProvider />)}</div></div> : null}
               </section>

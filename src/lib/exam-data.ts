@@ -1,3 +1,4 @@
+import { isExamProgression, type ExamProgression } from "@/lib/exam-progression"
 import { isExamDifficultySettings, type ExamDifficultySettings } from "@/lib/exam-difficulty"
 import { isSacRecord, migrateSacRecords, type SacRecord } from "@/lib/sac"
 import { isPerformanceContext, type PerformanceContext } from "@/lib/performance-context"
@@ -188,6 +189,7 @@ export type SavedAtarEstimate = {
 }
 
 export type AppData = {
+  examProgression?: ExamProgression
   schemaVersion: 5
   attempts: ExamAttempt[]
   mistakes: Mistake[]
@@ -895,6 +897,7 @@ export function isAppData(value: unknown): value is AppData {
     (data.mistakeInsights === undefined || isMistakeInsights(data.mistakeInsights)) &&
     (data.alternativeMistakeDeck === undefined || isAlternativeMistakeDeck(data.alternativeMistakeDeck)) &&
     (data.examDifficulty === undefined || isExamDifficultySettings(data.examDifficulty)) &&
+    (data.examProgression === undefined || isExamProgression(data.examProgression)) &&
     Array.isArray(data.atarEstimates) &&
     data.atarEstimates.every(isSavedAtarEstimate) &&
     typeof data.atarEstimatesUpdatedAt === "string" &&

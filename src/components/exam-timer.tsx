@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import { Check, Clock3, Pause, Play, SlidersHorizontal, Trash2 } from "lucide-react"
 import { toast } from "sonner"
+import { ExamProgressionPanel, type ExamProgressionProps } from "@/components/exam-progression"
 import { ExamConditionsDialog } from "@/components/exam-conditions-dialog"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -40,7 +41,8 @@ import { pauseExamSession, resumeExamSession, type ExamTimerSession } from "@/li
 
 export type ExamTimerPreset = Pick<ExamTimerSession, "subject" | "provider" | "examYear" | "paper" | "marks"> & Partial<Pick<ExamTimerSession, "readingMinutes" | "writingMinutes">>
 
-type ExamTimerProps = {
+type ExamTimerProps = ExamProgressionProps & {
+  attempts: ExamAttempt[]
   references: AssessmentReference[]
   studies: VcaaStudyResources[]
   preferredSubjects: string[]
@@ -77,7 +79,7 @@ function SuggestionButton({ suggestion, onClick, showProvider = false }: {
   )
 }
 
-export function ExamTimer({ references, studies, preferredSubjects, initialExam, activeSession, saveStatus, syncAction, onLeave, onSessionChange, onSave }: ExamTimerProps) {
+export function ExamTimer({ progression, onProgressionChange, attempts, references, studies, preferredSubjects, initialExam, activeSession, saveStatus, syncAction, onLeave, onSessionChange, onSave }: ExamTimerProps) {
   const session = activeSession ?? null
   const [subject, setSubject] = useState(initialExam?.subject ?? firstPreferredSubject(references.map((item) => item.studyName), preferredSubjects))
   const [provider, setProvider] = useState(initialExam?.provider ?? "VCAA")
@@ -100,14 +102,14 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
   const lastAutofilledKey = useRef<string | null>(null)
   const history = useMemo(loadAppData, [])
   const suggestions = useMemo(
-    () => buildExamSuggestions(history.attempts, references, preferredSubjects, 4, studies),
-    [history.attempts, preferredSubjects, references, studies],
+    () => buildExamSuggestions(attempts, references, preferredSubjects, 4, studies),
+    [attempts, preferredSubjects, references, studies],
   )
   const companySuggestions = useMemo(
-    () => buildCompanyExamSuggestions(history.attempts, references, preferredSubjects, history.examDifficulty, 4),
-    [history.attempts, history.examDifficulty, preferredSubjects, references],
+    () => buildCompanyExamSuggestions(attempts, references, preferredSubjects, history.examDifficulty, 4),
+    [attempts, history.examDifficulty, preferredSubjects, references],
   )
-  const latestAttempt = useMemo(() => findLatestAttempt(history.attempts), [history.attempts])
+  const latestAttempt = useMemo(() => findLatestAttempt(attempts), [attempts])
   const now = useTickingNow(250)
   const reportUrl = useMemo(() => studies.find((study) => study.studyName.toLowerCase() === (session?.subject ?? subject).toLowerCase())?.resources.find((resource) => resource.kind === "report" && resource.year === (session?.examYear ?? examYear))?.url, [examYear, session?.examYear, session?.subject, studies, subject])
   const paperUrl = useMemo(() => studies.find((study) => study.studyName.toLowerCase() === (session?.subject ?? subject).toLowerCase())?.resources.find((resource) => resource.kind === "exam" && resource.year === (session?.examYear ?? examYear) && (!session?.paper || resource.label.toLowerCase().includes(session.paper.toLowerCase()) || session.paper.toLowerCase().includes(resource.label.toLowerCase())))?.url, [examYear, session?.examYear, session?.paper, session?.subject, studies, subject])
@@ -273,7 +275,7 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
     return (
       <WorkspacePage>
         <PageHeader title="Exam timer" description="Choose an exam, set the conditions, then begin when your paper is ready." />
-        {suggestions.length || companySuggestions.length ? (
+        {(
           <Card className="w-full gap-5">
             <CardHeader>
               <CardTitle>Suggested next exams</CardTitle>
@@ -285,6 +287,7 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-5">
+              <ExamProgressionPanel progression={progression} onProgressionChange={onProgressionChange} attempts={attempts} subjects={preferredSubjects} onSelect={applySuggestion} />
               {suggestions.length ? <section className="grid gap-2" aria-labelledby="official-suggestions-title">
                 <div><h3 id="official-suggestions-title" className="text-sm font-medium">Official VCAA papers</h3><p className="text-xs text-muted-foreground">Continue through available papers and years for your current subject.</p></div>
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -303,7 +306,7 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
               </section> : null}
             </CardContent>
           </Card>
-        ) : null}
+        )}
         <Card className="w-full gap-5">
           <CardHeader>
             <CardTitle>Set up your exam</CardTitle>
