@@ -120,14 +120,14 @@ async function sendTimerChange(change: PendingTimerChange): Promise<boolean> {
   }
   const { error } = await focalSupabase.from("sync_changes").insert({
     user_id: session.user.id,
-    change_id: crypto.randomUUID(),
+    change_id: change.nonce,
     device_id: "examtrack-web",
     entity: "study_sessions",
     row_id: link.sessionId,
     operation: operation === "delete" ? "delete" : "put",
     payload,
   })
-  if (error) {
+  if (error && error.code !== "23505") {
     console.error("Could not sync timer with Focal:", error)
     return false
   }
@@ -152,7 +152,10 @@ export async function flushFocalTimerOutbox(): Promise<void> {
       }
       if (sent === 0) return
     }
-  })().finally(() => {
+  })().catch((error) => {
+    // Keep the durable outbox intact for the next connection attempt.
+    console.error("Could not flush Focal timer sync:", error)
+  }).finally(() => {
     flushTask = null
   })
   return flushTask
@@ -164,6 +167,11 @@ export async function publishFocalTimer(
   now = new Date(),
 ): Promise<boolean> {
   const outbox = readOutbox()
+  const pending = outbox[link.sessionId]
+  if (pending && pending.changedAt > now.toISOString()) {
+    await flushFocalTimerOutbox()
+    return !(link.sessionId in readOutbox())
+  }
   outbox[link.sessionId] = {
     nonce: crypto.randomUUID(),
     link,

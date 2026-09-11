@@ -1,4 +1,4 @@
-import { isFocalTimerLink, type FocalTimerLink } from "@/lib/focal-timer"
+import { isFocalTimerLink, pauseFocalTimer, resumeFocalTimer, type FocalTimerLink } from "@/lib/focal-timer"
 import { isSacUnit, type SacUnit } from "@/lib/sac"
 
 export type ExamTimerSession = {
@@ -18,6 +18,23 @@ export type ExamTimerSession = {
 }
 
 export type ExamWorkspaceStatus = "not-started" | "in-progress" | "flagged" | "done"
+
+export function pauseExamSession(session: ExamTimerSession, now = Date.now()): ExamTimerSession {
+  if (session.pausedAt !== undefined) return session
+  return { ...session, pausedAt: now, focal: session.focal ? pauseFocalTimer(session.focal, new Date(now)) : undefined }
+}
+
+export function resumeExamSession(session: ExamTimerSession, now = Date.now()): ExamTimerSession {
+  if (session.pausedAt === undefined) return session
+  const pauseDuration = Math.max(0, now - session.pausedAt)
+  return {
+    ...session,
+    startedAt: session.startedAt + pauseDuration,
+    pausedAt: undefined,
+    pausedSeconds: session.pausedSeconds + pauseDuration / 1000,
+    focal: session.focal ? resumeFocalTimer(session.focal, new Date(now)) : undefined,
+  }
+}
 
 export type ExamWorkspaceItem = {
   id: string

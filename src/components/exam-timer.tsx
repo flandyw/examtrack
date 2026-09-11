@@ -28,15 +28,13 @@ import { getKnownExamConditions } from "@/lib/exam-conditions"
 import { formatTimer, getExamTimerState } from "@/lib/exam-timer"
 import {
   createFocalTimerLink,
-  pauseFocalTimer,
   publishFocalTimer,
-  resumeFocalTimer,
 } from "@/lib/focal-timer"
 import { loadAppData } from "@/lib/storage"
 import { firstPreferredSubject, prioritiseSubjects } from "@/lib/subjects"
 import { hasPerformanceContext, type PerformanceContext } from "@/lib/performance-context"
 import type { VcaaStudyResources } from "@/lib/vcaa-resources"
-import { isExamTimerSession, type ExamTimerSession } from "@/lib/ongoing-timers"
+import { pauseExamSession, resumeExamSession, type ExamTimerSession } from "@/lib/ongoing-timers"
 
 export type ExamTimerPreset = Pick<ExamTimerSession, "subject" | "provider" | "examYear" | "paper" | "marks"> & Partial<Pick<ExamTimerSession, "readingMinutes" | "writingMinutes">>
 
@@ -46,21 +44,12 @@ type ExamTimerProps = {
   preferredSubjects: string[]
   initialExam?: ExamTimerPreset | null
   activeSession?: ExamTimerSession
+  saveStatus: string
   onSessionChange: (session: ExamTimerSession | undefined) => void
   onSave: (attempt: ExamAttempt) => void
 }
 
-const STORAGE_KEY = "examtrack.timer"
 const today = () => new Date().toISOString().slice(0, 10)
-
-function loadSession(): ExamTimerSession | null {
-  try {
-    const value: unknown = JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "null")
-    return isExamTimerSession(value) ? value : null
-  } catch {
-    return null
-  }
-}
 
 function SuggestionButton({ suggestion, onClick, showProvider = false }: {
   suggestion: ExamSuggestion
@@ -84,8 +73,7 @@ function SuggestionButton({ suggestion, onClick, showProvider = false }: {
   )
 }
 
-export function ExamTimer({ references, studies, preferredSubjects, initialExam, activeSession, onSessionChange, onSave }: ExamTimerProps) {
-  const migratedLegacySession = useRef(false)
+export function ExamTimer({ references, studies, preferredSubjects, initialExam, activeSession, saveStatus, onSessionChange, onSave }: ExamTimerProps) {
   const session = activeSession ?? null
   const [subject, setSubject] = useState(initialExam?.subject ?? firstPreferredSubject(references.map((item) => item.studyName), preferredSubjects))
   const [provider, setProvider] = useState(initialExam?.provider ?? "VCAA")
@@ -119,16 +107,6 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
   const paperUrl = useMemo(() => studies.find((study) => study.studyName.toLowerCase() === (session?.subject ?? subject).toLowerCase())?.resources.find((resource) => resource.kind === "exam" && resource.year === (session?.examYear ?? examYear) && (!session?.paper || resource.label.toLowerCase().includes(session.paper.toLowerCase()) || session.paper.toLowerCase().includes(resource.label.toLowerCase())))?.url, [examYear, session?.examYear, session?.paper, session?.subject, studies, subject])
 
   useEffect(() => {
-    if (!migratedLegacySession.current) {
-      migratedLegacySession.current = true
-      const legacySession = loadSession()
-      if (!activeSession && legacySession) onSessionChange(legacySession)
-    }
-    if (activeSession) sessionStorage.setItem(STORAGE_KEY, JSON.stringify(activeSession))
-    else sessionStorage.removeItem(STORAGE_KEY)
-  }, [activeSession, onSessionChange])
-
-  useEffect(() => {
     if (session || !paper.trim()) return
     const conditions = getKnownExamConditions(subject, paper)
     if (!conditions) return
@@ -142,8 +120,6 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
   }, [paper, session, subject])
 
   function saveSession(next: ExamTimerSession | undefined) {
-    if (next) sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-    else sessionStorage.removeItem(STORAGE_KEY)
     onSessionChange(next)
   }
 
@@ -198,25 +174,22 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
 
   function skipReading() {
     if (!session || !timer) return
-    const next = { ...session, startedAt: Date.now() - session.readingMinutes * 60_000 }
+    const next = { ...session, startedAt: (session.pausedAt ?? Date.now()) - session.readingMinutes * 60_000 }
     saveSession(next)
   }
 
   function pause() {
-    if (!session || session.pausedAt) return
-    const focal = session.focal ? pauseFocalTimer(session.focal) : undefined
-    const next = { ...session, pausedAt: Date.now(), focal }
+    if (!session) return
+    const next = pauseExamSession(session)
     saveSession(next)
-    if (focal) void publishFocalTimer(focal, "in-progress")
+    if (next.focal) void publishFocalTimer(next.focal, "in-progress")
   }
 
   function resume() {
-    if (!session?.pausedAt) return
-    const pauseDuration = Date.now() - session.pausedAt
-    const focal = session.focal ? resumeFocalTimer(session.focal) : undefined
-    const next = { ...session, startedAt: session.startedAt + pauseDuration, pausedAt: undefined, pausedSeconds: (session.pausedSeconds ?? 0) + Math.floor(pauseDuration / 1000), focal }
+    if (!session) return
+    const next = resumeExamSession(session)
     saveSession(next)
-    if (focal) void publishFocalTimer(focal, "in-progress")
+    if (next.focal) void publishFocalTimer(next.focal, "in-progress")
   }
 
   function openMarking() {
@@ -239,7 +212,6 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
 
   function closeMarking() {
     setMarkingOpen(false)
-    resume()
   }
 
   function saveMark(event: FormEvent) {
@@ -389,10 +361,11 @@ export function ExamTimer({ references, studies, preferredSubjects, initialExam,
     <WorkspacePage>
       <PageHeader title={session.title} description={`${session.subject} · ${session.readingMinutes} min reading · ${session.writingMinutes} min writing · ${session.marks} marks`}>
         <Button variant="ghost" onClick={reset}><RotateCcw />Discard</Button>
-        <Button variant="outline" onClick={session.pausedAt ? resume : pause}>{session.pausedAt ? <Play /> : <Pause />}{session.pausedAt ? "Resume" : "Pause"}</Button>
+        <Button variant="outline" onClick={session.pausedAt ? resume : pause}>{session.pausedAt ? <Play /> : <Pause />}{session.pausedAt ? "Resume exam" : "Pause and save"}</Button>
         <Button onClick={openMarking}><Check />Finish & mark</Button>
       </PageHeader>
 
+      {session.pausedAt !== undefined ? <Alert><Pause /><AlertTitle>Exam paused</AlertTitle><AlertDescription>{saveStatus} Your timer and question progress are preserved. Resume when you’re ready.</AlertDescription></Alert> : null}
       {session.focal ? <Alert><Clock3 /><AlertTitle>Focal study logging active</AlertTitle><AlertDescription>Timer changes are queued and mirrored when your separate Focal account is connected and online.</AlertDescription></Alert> : null}
 
       <section className="grid gap-6 py-6 text-center">

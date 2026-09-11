@@ -248,6 +248,24 @@ export function useSupabaseSync(data: AppData, setData: Dispatch<SetStateAction<
   const [user, setUser] = useState<User | null>(null)
   const [status, setStatus] = useState<SyncStatus>(supabase ? "signed-out" : "unconfigured")
   const previous = useRef(data)
+  const [refresh, setRefresh] = useState(0)
+  const syncTask = useRef<Promise<unknown>>(Promise.resolve())
+  const syncedData = useRef<AppData | null>(null)
+
+  useEffect(() => {
+    if (!user) return
+    const refreshSync = () => { if (document.visibilityState !== "hidden") setRefresh((value) => value + 1) }
+    window.addEventListener("online", refreshSync)
+    window.addEventListener("focus", refreshSync)
+    document.addEventListener("visibilitychange", refreshSync)
+    const interval = window.setInterval(refreshSync, 30_000)
+    return () => {
+      window.removeEventListener("online", refreshSync)
+      window.removeEventListener("focus", refreshSync)
+      document.removeEventListener("visibilitychange", refreshSync)
+      window.clearInterval(interval)
+    }
+  }, [user])
 
   useEffect(() => {
     recordLocalChanges(previous.current, data)
@@ -256,9 +274,13 @@ export function useSupabaseSync(data: AppData, setData: Dispatch<SetStateAction<
     let cancelled = false
     const timeout = window.setTimeout(() => {
       setStatus("syncing")
-      syncAppData(data, user.id)
+      // Serialize requests so an older local snapshot cannot finish last.
+      const task = syncTask.current.catch(() => {}).then(() => cancelled ? null : syncAppData(data, user.id))
+      syncTask.current = task
+      task
         .then((merged) => {
-          if (cancelled) return
+          if (cancelled || !merged) return
+          syncedData.current = JSON.stringify(data) === JSON.stringify(merged) ? data : merged
           setData((current) => JSON.stringify(current) === JSON.stringify(merged) ? current : merged)
           setStatus("synced")
         })
@@ -270,7 +292,7 @@ export function useSupabaseSync(data: AppData, setData: Dispatch<SetStateAction<
       cancelled = true
       window.clearTimeout(timeout)
     }
-  }, [data, setData, user])
+  }, [data, setData, user, refresh])
 
   useEffect(() => {
     if (!supabase) return
@@ -306,7 +328,7 @@ export function useSupabaseSync(data: AppData, setData: Dispatch<SetStateAction<
   return {
     configured: Boolean(supabase),
     user,
-    status,
+    status: status === "synced" && syncedData.current !== data ? "syncing" as const : status,
     signIn: async (email: string, password: string) => {
       if (!supabase) throw new Error("Supabase is not configured.")
       const { error } = await supabase.auth.signInWithPassword({ email, password })
