@@ -14,9 +14,10 @@ const validRecord = {
   criterion: "",
 }
 
-test("prompt lists every category, every key, and raw-JSON output rules", () => {
+test("prompt lists every category, every key, and fenced JSON output rules", () => {
   const prompt = buildMistakeImportPrompt()
-  expect(prompt).toContain("ONLY raw JSON")
+  expect(prompt).toContain("ONLY one fenced")
+  expect(prompt).toContain("```json")
   for (const category of MISTAKE_CATEGORIES) expect(prompt).toContain(category)
   for (const key of ["question", "questionText", "category", "explanation", "correction", "totalMarks", "marksLost", "areaOfStudy", "criterion"]) {
     expect(prompt).toContain(`"${key}"`)
