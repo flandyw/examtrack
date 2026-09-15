@@ -30,7 +30,7 @@ export function buildMistakeImportPrompt(): string {
   return `You are helping me log my exam mistakes into my study tracker. I will give you material such as marked exam papers, photos of questions and responses, transcripts, or my own description of what happened. Turn every distinct mistake in that material into one JSON record so I can paste the result straight into the app.
 
 OUTPUT RULES
-- Return ONLY raw JSON: no explanations, no commentary, no Markdown code fences.
+- Return ONLY one fenced \`\`\`json code block containing the JSON array, ending with \`\`\`. Do not include explanations or commentary outside the code block.
 - The response must be a single JSON array of objects, one object per distinct mistake, even when there is only one mistake.
 - Keep mathematical and scientific notation as Markdown with LaTeX ($...$ inline or $$...$$ display) only where needed, and escape backslashes correctly inside JSON strings.
 - Write concise, student-friendly text. Never invent unreadable or missing content; use context to infer what you can.
@@ -64,7 +64,9 @@ FIELD DETAILS
 
 EXAMPLE OF A COMPLETE RECORD
 
+\`\`\`json
 ${PROMPT_EXAMPLE}
+\`\`\`
 
 Material to analyse follows after this line.`
 }
@@ -124,7 +126,7 @@ export function parseMistakeImport(text: string): ParsedMistakeDraft[] {
     try {
       parsed = JSON.parse(text.slice(start, end + 1))
     } catch {
-      throw new Error("This is not valid JSON. Ask your chatbot to return raw JSON only, then paste it again.")
+      throw new Error("This is not valid JSON. Ask your chatbot to return one fenced JSON code block, then paste it again.")
     }
   }
 
