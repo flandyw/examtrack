@@ -119,6 +119,7 @@ export function MistakeSheet({
   onSave,
 }: MistakeSheetProps) {
   const auth = useLoginWithChatGPT()
+  const [showPreviews, setShowPreviews] = useState(false)
   const [attemptId, setAttemptId] = useState(initialMistake?.attemptId ?? initialAttemptId ?? "")
   const [question, setQuestion] = useState(initialMistake?.question ?? "")
   const [questionText, setQuestionText] = useState(initialMistake?.questionText ?? "")
@@ -408,8 +409,9 @@ export function MistakeSheet({
             <FieldError>{error}</FieldError>
           </div>
         ) : (
-          <form id="mistake-form" className="overflow-y-auto px-4 pb-4" onSubmit={submit}>
+          <form id="mistake-form" className="overflow-y-auto px-4 pb-6 sm:px-6" onSubmit={submit}>
             <FieldGroup>
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-muted/40 p-3"><p className="text-sm text-muted-foreground">Capture the question. Understand the gap. Save a better approach.</p><Button type="button" size="sm" variant="outline" aria-pressed={showPreviews} onClick={() => setShowPreviews(!showPreviews)}>{showPreviews ? "Hide previews" : "Show formatted previews"}</Button></div>
               {isEditingBatchDraft ? (
                 <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/30 p-2">
                   <Button type="button" size="sm" variant="ghost" onClick={returnToBatchGrid}><ArrowLeft />All questions</Button>
@@ -417,6 +419,9 @@ export function MistakeSheet({
                 </div>
               ) : (
                 <Field>
+                  <details className="rounded-xl border bg-muted/20 p-4">
+                    <summary className="cursor-pointer text-sm font-semibold">Images & AI assistance <span className="font-normal text-muted-foreground">· optional</span></summary>
+                    <div className="mt-4 grid gap-4">
                   <FieldLabel htmlFor="mistake-image">Prompt, response, and feedback images</FieldLabel>
                   {!initialMistake ? (
                     <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted p-1">
@@ -502,9 +507,12 @@ export function MistakeSheet({
                       </div>
                     ) : null}
                   </div>
+                    </div>
+                  </details>
                 </Field>
               )}
 
+              <div className="border-t pt-5"><h3 className="font-semibold">01 · The question</h3><p className="mt-1 text-sm text-muted-foreground">Keep the original task and exam context together.</p></div>
               <div className="grid gap-5 sm:grid-cols-2">
                 <Field>
                   <FieldLabel htmlFor="mistake-exam">Exam</FieldLabel>
@@ -536,9 +544,10 @@ export function MistakeSheet({
               <Field>
                 <FieldLabel htmlFor="question-text">Prompt or task</FieldLabel>
                 <Textarea id="question-text" rows={4} value={questionText} onChange={(event) => setQuestionText(event.target.value)} placeholder="Enter the full question, essay prompt, stimulus task, or practical requirement." />
-                <MarkdownPreview>{questionText}</MarkdownPreview>
+                {showPreviews ? <div className="rounded-lg border bg-muted/20 p-3"><MarkdownPreview>{questionText}</MarkdownPreview></div> : null}
               </Field>
 
+              <div className="border-t pt-5"><h3 className="font-semibold">02 · Organise</h3><p className="mt-1 text-sm text-muted-foreground">Add labels to find patterns and build focused practice sets.</p></div>
               <Field>
                 <FieldLabel>Category</FieldLabel>
                 <Select value={category} onValueChange={(value) => setCategory(value as MistakeCategory)}>
@@ -567,24 +576,26 @@ export function MistakeSheet({
                 </Field>
               </div>
 
+              <div className="border-t pt-5"><h3 className="font-semibold">03 · The takeaway</h3><p className="mt-1 text-sm text-muted-foreground">Write the lesson you want to remember next time.</p></div>
               <Field>
                 <FieldLabel htmlFor="explanation">What went wrong?</FieldLabel>
                 <Textarea id="explanation" rows={5} value={explanation} onChange={(event) => setExplanation(event.target.value)} placeholder="Describe the gap: what was misunderstood, omitted, unsupported, unclear, or done inaccurately?" />
                 <FieldDescription>Describe the error precisely enough to recognise it next time.</FieldDescription>
-                <MarkdownPreview>{explanation}</MarkdownPreview>
+                {showPreviews ? <div className="rounded-lg border bg-muted/20 p-3"><MarkdownPreview>{explanation}</MarkdownPreview></div> : null}
               </Field>
 
               <Field>
                 <FieldLabel htmlFor="correction">Improved response or method</FieldLabel>
                 <Textarea id="correction" rows={5} value={correction} onChange={(event) => setCorrection(event.target.value)} placeholder="Write the correct idea, evidence, structure, process, or answer you should use next time." />
-                <MarkdownPreview>{correction}</MarkdownPreview>
+                {showPreviews ? <div className="rounded-lg border bg-muted/20 p-3"><MarkdownPreview>{correction}</MarkdownPreview></div> : null}
               </Field>
               <FieldError>{error}</FieldError>
             </FieldGroup>
           </form>
         )}
 
-        <SheetFooter>
+        <SheetFooter className="border-t bg-background">
+          <Button type="button" variant="outline" disabled={saving || analysing} onClick={() => handleOpenChange(false)}>Cancel</Button>
           {isBatchReview && !isEditingBatchDraft ? (
             <Button type="button" onClick={() => void saveBatch()} disabled={analysing || saving}>{saving ? "Saving…" : `Save all ${batchDrafts.length} mistakes`}</Button>
           ) : (
