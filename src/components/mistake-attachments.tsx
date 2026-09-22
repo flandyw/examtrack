@@ -30,10 +30,10 @@ export function MistakeAttachments({ attachments, compact = false }: { attachmen
   if (failed) return <p className="text-xs text-muted-foreground">Saved images could not be loaded.</p>
 
   return (
-    <div className={`grid gap-2 ${compact ? "grid-cols-3" : "grid-cols-2 sm:grid-cols-3"}`}>
+    <div aria-label="Question images" className={`my-3 grid gap-3 ${compact ? "grid-cols-3" : "grid-cols-1"}`}>
       {attachments.map((attachment) => urls[attachment.storagePath] ? (
         <a key={attachment.id} href={urls[attachment.storagePath]} target="_blank" rel="noopener noreferrer" className="overflow-hidden rounded-lg border bg-muted/30" title={attachment.name}>
-          <img src={urls[attachment.storagePath]} alt={attachment.name || "Mistake context"} className={`${compact ? "h-20" : "h-32"} w-full object-contain`} />
+          <img src={urls[attachment.storagePath]} alt={attachment.name || "Question image"} className={`${compact ? "h-20" : "h-auto max-h-[70vh]"} w-full object-contain`} />
         </a>
       ) : (
         <div key={attachment.id} className={`${compact ? "h-20" : "h-32"} flex items-center justify-center rounded-lg border bg-muted/30 text-muted-foreground`}><ImageIcon className="size-5" /></div>

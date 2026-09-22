@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from "react"
+import { useEffect, useRef, useState, type FormEvent } from "react"
 import { useLoginWithChatGPT } from "@opencoredev/loginwithchatgpt-react"
 import { ArrowLeft, CheckCircle2, Copy, ExternalLink, Images, LogOut, Pencil, Sparkles, X } from "lucide-react"
 import { MistakeAttachments } from "@/components/mistake-attachments"
@@ -73,9 +73,9 @@ function draftFromFields({
   return { attemptId, question, questionText, category, explanation, correction, areaOfStudy, criterion, totalMarks, marksLost }
 }
 
-function validateMistakeDraft(draft: MistakeDraft): string | null {
-  if (!draft.attemptId || !draft.question.trim() || !draft.questionText.trim() || !draft.explanation.trim() || !draft.correction.trim()) {
-    return "Exam, item label, prompt, mistake, and improved response are required."
+function validateMistakeDraft(draft: MistakeDraft, imageCount = 0): string | null {
+  if (!draft.attemptId || !draft.question.trim() || (!draft.questionText.trim() && !imageCount) || !draft.explanation.trim() || !draft.correction.trim()) {
+    return "Exam, item label, a question (text or images), mistake, and improved response are required."
   }
   return validateMistakeMarks(draft.totalMarks, draft.marksLost)
 }
@@ -130,6 +130,13 @@ export function MistakeSheet({
   const [criterion, setCriterion] = useState(initialMistake?.criterion ?? "")
   const [totalMarks, setTotalMarks] = useState(initialMistake?.totalMarks ?? 0)
   const [marksLost, setMarksLost] = useState(initialMistake?.marksLost ?? 0)
+  const [questionImages, setQuestionImages] = useState<File[]>([])
+  const [questionImageUrls, setQuestionImageUrls] = useState<string[]>([])
+  useEffect(() => {
+    const urls = questionImages.map((file) => URL.createObjectURL(file))
+    setQuestionImageUrls(urls)
+    return () => urls.forEach((url) => URL.revokeObjectURL(url))
+  }, [questionImages])
   const [images, setImages] = useState<File[]>([])
   const [savedAttachments, setSavedAttachments] = useState(initialMistake?.attachments ?? [])
   const [saveImages, setSaveImages] = useState(Boolean(storageUserId))
@@ -142,17 +149,18 @@ export function MistakeSheet({
   const [error, setError] = useState<string | null>(null)
   const initialSnapshot = useRef(JSON.stringify({
     attemptId, question, questionText, category, explanation, correction,
-    areaOfStudy, criterion, totalMarks, marksLost, imageCount: 0, batchCount: 0,
+    areaOfStudy, criterion, totalMarks, marksLost, imageCount: 0, batchCount: 0, questionImageCount: 0, attachmentIds: (initialMistake?.attachments ?? []).map(({ id }) => id),
   }))
   const dirty = JSON.stringify({
     attemptId, question, questionText, category, explanation, correction,
     areaOfStudy, criterion, totalMarks, marksLost,
-    imageCount: images.length, batchCount: batchDrafts.length,
+    imageCount: images.length, batchCount: batchDrafts.length, questionImageCount: questionImages.length, attachmentIds: savedAttachments.map(({ id }) => id),
   }) !== initialSnapshot.current
   const [confirmingClose, setConfirmingClose] = useState(false)
 
   function handleOpenChange(next: boolean) {
-    if (!next && dirty && !saving) {
+    if (!next && (saving || analysing)) return
+    if (!next && dirty) {
       setConfirmingClose(true)
       return
     }
@@ -180,6 +188,7 @@ export function MistakeSheet({
     setTotalMarks(0)
     setMarksLost(0)
     setImages([])
+    setQuestionImages([])
     setSavedAttachments([])
     setSaveImages(Boolean(storageUserId))
     setImportMode("single")
@@ -305,7 +314,7 @@ export function MistakeSheet({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const draft = readCurrentDraft()
-    const validationError = validateMistakeDraft(draft)
+    const validationError = validateMistakeDraft(draft, isEditingBatchDraft ? 0 : savedAttachments.length + questionImages.length + (saveImages ? images.length : 0))
     if (validationError) {
       setError(validationError)
       return
@@ -318,7 +327,7 @@ export function MistakeSheet({
       return
     }
 
-    const filesToSave = saveImages ? images : []
+    const filesToSave = [...questionImages, ...(saveImages ? images : [])]
     const attachmentError = validateSavedMistakeImages(filesToSave, savedAttachments.length, savedAttachments.reduce((total, attachment) => total + attachment.size, 0))
     if (attachmentError) return setError(attachmentError)
     if (filesToSave.length && !storageUserId) return setError("Sign in to ExamTrack sync in Settings to save images with mistakes.")
@@ -428,7 +437,7 @@ export function MistakeSheet({
                       <Button type="button" size="sm" variant={importMode === "single" ? "secondary" : "ghost"} disabled={analysing || batchDrafts.length > 0} onClick={() => { setImportMode("single"); setBatchDrafts([]); setActiveBatchIndex(null); setProgress(null); setError(null) }}>
                         <Sparkles />One mistake
                       </Button>
-                      <Button type="button" size="sm" variant={importMode === "batch" ? "secondary" : "ghost"} disabled={analysing || batchDrafts.length > 0} onClick={() => { setImportMode("batch"); setBatchDrafts([]); setActiveBatchIndex(null); setProgress(null); setError(null) }}>
+                      <Button type="button" size="sm" variant={importMode === "batch" ? "secondary" : "ghost"} disabled={analysing || batchDrafts.length > 0 || questionImages.length > 0} onClick={() => { setImportMode("batch"); setBatchDrafts([]); setActiveBatchIndex(null); setProgress(null); setError(null) }}>
                         <Images />Separate questions
                       </Button>
                     </div>
@@ -441,7 +450,9 @@ export function MistakeSheet({
                       multiple
                       disabled={analysing || batchDrafts.length > 0}
                       onChange={(event) => {
-                        setImages(Array.from(event.target.files ?? []))
+                        const added = Array.from(event.target.files ?? [])
+                        setImages((current) => [...current, ...added])
+                        event.target.value = ""
                         setBatchDrafts([])
                         setActiveBatchIndex(null)
                         setProgress(null)
@@ -453,23 +464,12 @@ export function MistakeSheet({
                     </Button>
                   </div>
                   <FieldDescription>{importMode === "batch" ? "Choose the shared exam, then add 2–10 images. Each image becomes a separate mistake in the same order; each can be up to 3 MB and the batch up to 15 MB." : "Choose the exam, then upload one or more related images totalling up to 3 MB. Matching VCAA attempts also include the official exam PDF for context."}</FieldDescription>
+                  {images.map((file, index) => <div key={index} className="flex items-center justify-between gap-2 text-sm"><span className="truncate">{index + 1}. {file.name}</span><Button type="button" size="icon-xs" variant="ghost" disabled={saving || analysing || batchDrafts.length > 0} aria-label={"Remove AI image " + (index + 1)} onClick={() => setImages((files) => files.filter((_, i) => i !== index))}><X /></Button></div>)}
                   {images.length ? (
                     <label className="flex items-start gap-2 rounded-lg border p-3 text-sm">
                       <input type="checkbox" className="mt-0.5 size-4" checked={saveImages} disabled={!storageUserId} onChange={(event) => { setSaveImages(event.target.checked); setError(null) }} />
                       <span><span className="font-medium">Save {importMode === "batch" ? "each image with its mistake" : "these images with the mistake"}</span><br /><span className="text-xs text-muted-foreground">{storageUserId ? "Keeps graphs, annotations, and other context available during review." : "Sign in to ExamTrack sync in Settings to store private image attachments."}</span></span>
                     </label>
-                  ) : null}
-                  {initialMistake?.attachments?.length ? (
-                    <div className="grid gap-2">
-                      <p className="text-sm font-medium">Saved images</p>
-                      <MistakeAttachments attachments={savedAttachments} />
-                      {savedAttachments.map((attachment) => (
-                        <div key={attachment.id} className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                          <span className="truncate">{attachment.name}</span>
-                          <Button type="button" size="icon-xs" variant="ghost" aria-label={`Remove ${attachment.name}`} disabled={!storageUserId} onClick={() => setSavedAttachments((items) => items.filter(({ id }) => id !== attachment.id))}><X /></Button>
-                        </div>
-                      ))}
-                    </div>
                   ) : null}
                   {progress ? <p role="status" aria-live="polite" className="text-sm text-muted-foreground tabular-nums">{formatChatGPTProgress(progress)}</p> : null}
                   <div className="rounded-lg border bg-muted/30 p-3">
@@ -546,6 +546,38 @@ export function MistakeSheet({
                 <Textarea id="question-text" rows={4} value={questionText} onChange={(event) => setQuestionText(event.target.value)} placeholder="Enter the full question, essay prompt, stimulus task, or practical requirement." />
                 {showPreviews ? <div className="rounded-lg border bg-muted/20 p-3"><MarkdownPreview>{questionText}</MarkdownPreview></div> : null}
               </Field>
+
+              {!isEditingBatchDraft ? <Field>
+                <FieldLabel htmlFor="question-images">Question images</FieldLabel>
+                <FieldDescription>Add diagrams, screenshots, or multiple pages as part of this question. Up to 5 images, 5 MB each, 20 MB total including saved and retained AI images. Text above is optional when the question is in images.</FieldDescription>
+                <Input id="question-images" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple disabled={!storageUserId || saving || analysing || importMode === "batch"} onChange={(event) => {
+                  const added = Array.from(event.target.files ?? [])
+                  event.target.value = ""
+                  const next = [...questionImages, ...added]
+                  const validation = validateSavedMistakeImages([...next, ...(saveImages ? images : [])], savedAttachments.length, savedAttachments.reduce((total, attachment) => total + attachment.size, 0))
+                  if (validation) { setError(validation); return }
+                  setQuestionImages(next); setError(null)
+                }} />
+                {!storageUserId ? <FieldDescription>Sign in to ExamTrack sync in Settings to save question images.</FieldDescription> : null}
+                {importMode === "batch" ? <FieldDescription>Switch to One mistake to attach multiple images to the same question.</FieldDescription> : null}
+                {questionImages.map((file, index) => <div key={index} className="grid gap-2 rounded-xl border p-3">
+                  <div className="flex items-center justify-between gap-2"><span className="truncate text-sm">{index + 1}. {file.name}</span><Button type="button" size="icon-xs" variant="ghost" disabled={saving || analysing} aria-label={"Remove question image " + (index + 1) + ": " + file.name} onClick={() => setQuestionImages((files) => files.filter((_, i) => i !== index))}><X /></Button></div>
+                  {questionImageUrls[index] ? <img src={questionImageUrls[index]} alt={"Question image " + (index + 1) + ": " + file.name} className="max-h-96 w-full rounded-lg object-contain" /> : null}
+                </div>)}
+                  {initialMistake?.attachments?.length ? (
+                    <div className="grid gap-2">
+                      <p className="text-sm font-medium">Saved question images</p>
+                      <MistakeAttachments attachments={savedAttachments} />
+                      {savedAttachments.map((attachment) => (
+                        <div key={attachment.id} className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                          <span className="truncate">{attachment.name}</span>
+                          <Button type="button" size="icon-xs" variant="ghost" aria-label={`Remove ${attachment.name}`} disabled={!storageUserId || saving || analysing} onClick={() => setSavedAttachments((items) => items.filter(({ id }) => id !== attachment.id))}><X /></Button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+
+              </Field> : null}
 
               <div className="border-t pt-5"><h3 className="font-semibold">02 · Organise</h3><p className="mt-1 text-sm text-muted-foreground">Add labels to find patterns and build focused practice sets.</p></div>
               <Field>

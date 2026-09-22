@@ -293,7 +293,7 @@ function BrowseCard({ mistake, attempt, studies, onEdit, onToggleSuspend, onDele
         <div className={compact ? "line-clamp-1 text-sm text-muted-foreground" : "line-clamp-3 text-sm"}>
           <MarkdownPreview inline>{mistake.questionText?.trim() || mistake.question}</MarkdownPreview>
         </div>
-        {!compact ? <MistakeAttachments attachments={mistake.attachments} compact /> : null}
+        <MistakeAttachments attachments={mistake.attachments} compact={compact} />
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <span>{mistake.suspended ? "Not in queue" : isDue ? "Due now" : `Due ${formatDueDate(schedule.dueAt)}`}</span>
           <span>Interval {schedule.intervalDays ? `${schedule.intervalDays}d` : "—"}</span>
