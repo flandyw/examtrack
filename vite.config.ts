@@ -77,4 +77,27 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  build: {
+    target: 'es2022',
+    cssCodeSplit: true,
+    sourcemap: false,
+    chunkSizeWarningLimit: 600,
+    assetsInlineLimit: 4096,
+    rollupOptions: {
+      output: {
+        // Keep the initial shell lean and cache heavy vendors separately so
+        // repeat visits only re-download changed app code.
+        manualChunks(id) {
+          if (id.includes("node_modules")) {
+            if (id.includes("recharts")) return "charts"
+            if (id.includes("react-markdown") || id.includes("remark-math") || id.includes("rehype-katex") || id.includes("/katex/")) return "markdown"
+            if (id.includes("@supabase")) return "supabase"
+            if (id.includes("/ai/") || id.includes("/ai-sdk/") || id.includes("@opencoredev")) return "ai"
+            if (id.includes("react") || id.includes("react-dom") || id.includes("scheduler")) return "react"
+          }
+          return undefined
+        },
+      },
+    },
+  },
 })

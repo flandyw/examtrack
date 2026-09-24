@@ -35,7 +35,18 @@ const SCALING_STUDY_ALIASES = new Map([
   ["mathematical methods cas", "mathematical methods"],
 ])
 
+const scalingNameCache = new Map<string, string>()
+
 export function normaliseScalingStudyName(value: string): string {
+  const cached = scalingNameCache.get(value)
+  if (cached !== undefined) return cached
+  const normalised = normaliseScalingStudyNameUncached(value)
+  if (scalingNameCache.size > 2000) scalingNameCache.clear()
+  scalingNameCache.set(value, normalised)
+  return normalised
+}
+
+function normaliseScalingStudyNameUncached(value: string): string {
   const original = normaliseComparisonName(value)
   const name = original
     .replace(/\bfl\b/g, "first language")

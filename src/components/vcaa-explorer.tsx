@@ -22,7 +22,7 @@ import {
 import { firstPreferredSubject, prioritiseSubjects } from "@/lib/subjects"
 import type { ExamTimerPreset } from "@/components/exam-timer"
 import { getKnownExamConditions } from "@/lib/exam-conditions"
-import { getVcaaExamCompanions, getVcaaExamPaper, getVcaaExamProvider, getVcaaExams, type VcaaStudyResources } from "@/lib/vcaa-resources"
+import { getCachedVcaaExams, getVcaaExamCompanions, getVcaaExamPaper, getVcaaExamProvider, type VcaaStudyResources } from "@/lib/vcaa-resources"
 
 const chartConfig = {
   aPlusCutoffPercentage: { label: "A+ cutoff", color: "#dc2626" },
@@ -46,16 +46,16 @@ export function VcaaExplorer({ references, attempts, preferredSubjects, studies 
     () => prioritiseSubjects(references.map((reference) => reference.studyName), preferredSubjects),
     [preferredSubjects, references],
   )
-  const resourceSubjects = new Set(getVcaaExams(studies).map((exam) => normaliseComparisonName(exam.studyName)))
+  const resourceSubjects = useMemo(() => new Set(getCachedVcaaExams(studies).map((exam) => normaliseComparisonName(exam.studyName))), [studies])
   const presetSubject = subjects.find((item) => normaliseComparisonName(item) === normaliseComparisonName(initialSelection?.subject ?? ""))
   const initialSubject = presetSubject || firstPreferredSubject(subjects, preferredSubjects) || (subjects.includes(latestAttempt?.subject) ? latestAttempt.subject : "") || subjects.find((item) => resourceSubjects.has(normaliseComparisonName(item))) || (subjects[0] ?? "")
   const [subjectValue, setSubject] = useState(initialSubject)
   const subject = subjects.includes(subjectValue) ? subjectValue : initialSubject
-  const subjectReferences = references.filter((reference) => reference.studyName === subject)
-  const papers = [...new Map(subjectReferences.map((reference) => [
+  const subjectReferences = useMemo(() => references.filter((reference) => reference.studyName === subject), [references, subject])
+  const papers = useMemo(() => [...new Map(subjectReferences.map((reference) => [
     normaliseComparisonName(reference.name),
     formatReferenceName(reference.name),
-  ])).entries()]
+  ])).entries()], [subjectReferences])
   const latestPaperKey = initialSelection && normaliseComparisonName(initialSelection.subject) === normaliseComparisonName(subject)
     ? normaliseComparisonName(initialSelection.paper)
     : latestAttempt?.subject === subject ? normaliseComparisonName(latestAttempt.paper) : ""
@@ -67,16 +67,17 @@ export function VcaaExplorer({ references, attempts, preferredSubjects, studies 
     ? (latestAttempt.rawScore / latestAttempt.rawMax) * 100
     : 75
   const [score, setScore] = useState(initialScore)
-  const matchingReferences = subjectReferences.filter(
+  const matchingReferences = useMemo(() => subjectReferences.filter(
     (reference) => normaliseComparisonName(reference.name) === selectedPaper,
-  )
-  const insights = buildVcaaYearInsights(matchingReferences, score)
+  ), [subjectReferences, selectedPaper])
+  const insights = useMemo(() => buildVcaaYearInsights(matchingReferences, score), [matchingReferences, score])
   const latest = insights.at(-1)
   const cohortTotal = insights.reduce((total, insight) => total + (insight.cohortSize ?? 0), 0)
-  const selectedStudy = studies.find((study) => normaliseComparisonName(study.studyName) === normaliseComparisonName(subject))
-  const selectedExam = getVcaaExams(selectedStudy ? [selectedStudy] : []).filter((exam) =>
+  const selectedStudy = useMemo(() => studies.find((study) => normaliseComparisonName(study.studyName) === normaliseComparisonName(subject)), [studies, subject])
+  const selectedExams = useMemo(() => getCachedVcaaExams(selectedStudy ? [selectedStudy] : []), [selectedStudy])
+  const selectedExam = useMemo(() => selectedExams.filter((exam) =>
     normaliseComparisonName(getVcaaExamPaper(exam)) === selectedPaper && exam.year !== null,
-  ).toSorted((first, second) => (second.year ?? 0) - (first.year ?? 0))[0]
+  ).toSorted((first, second) => (second.year ?? 0) - (first.year ?? 0))[0], [selectedExams, selectedPaper])
   const selectedCompanions = selectedExam ? getVcaaExamCompanions(selectedExam, selectedStudy) : null
   const selectedReference = selectedExam ? matchingReferences.find((reference) => reference.year === selectedExam.year) : undefined
   const selectedConditions = selectedExam ? getKnownExamConditions(selectedExam.studyName, getVcaaExamPaper(selectedExam)) : null
@@ -147,9 +148,9 @@ export function VcaaExplorer({ references, attempts, preferredSubjects, studies 
                 <ChartTooltip content={<ChartTooltipContent formatter={(value) => `${Number(value).toFixed(1)}%`} />} />
                 <ChartLegend content={<ChartLegendContent />} />
                 <ReferenceLine y={score} stroke="var(--foreground)" strokeDasharray="4 4" label={{ value: `You ${score.toFixed(1)}%`, position: "insideTopRight", fontSize: 11, fill: "var(--foreground)" }} />
-                <Line type="monotone" dataKey="aPlusCutoffPercentage" stroke="var(--color-aPlusCutoffPercentage)" strokeWidth={2} connectNulls />
-                <Line type="monotone" dataKey="meanPercentage" stroke="var(--color-meanPercentage)" strokeWidth={2} />
-                <Line type="monotone" dataKey="medianPercentage" stroke="var(--color-medianPercentage)" strokeWidth={2} strokeDasharray="5 3" />
+                <Line type="monotone" dataKey="aPlusCutoffPercentage" stroke="var(--color-aPlusCutoffPercentage)" strokeWidth={2} connectNulls isAnimationActive={false} />
+                <Line type="monotone" dataKey="meanPercentage" stroke="var(--color-meanPercentage)" strokeWidth={2} isAnimationActive={false} />
+                <Line type="monotone" dataKey="medianPercentage" stroke="var(--color-medianPercentage)" strokeWidth={2} strokeDasharray="5 3" isAnimationActive={false} />
               </LineChart>
             </ChartContainer>
             <p className="mt-3 text-xs text-muted-foreground">A+ cutoffs are official. Mean, median, and percentile values are estimates because VCAA publishes grouped grade bands rather than individual marks.</p>

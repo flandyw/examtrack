@@ -1,6 +1,7 @@
 import ReactMarkdown from "react-markdown"
 import rehypeKatex from "rehype-katex"
 import remarkMath from "remark-math"
+import "katex/dist/katex.min.css"
 import { cn } from "@/lib/utils"
 
 export function MarkdownPreview({ children, inline = false, unframed = false, className }: {

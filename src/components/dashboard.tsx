@@ -23,9 +23,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   analyseAttempt,
   buildCoverage,
+  findAttemptReferenceById,
   findAttemptReferenceForYear,
   getDueMistakes,
-  matchesAttemptReference,
   type AppData,
   type AssessmentReference,
   type ExamAttempt,
@@ -233,12 +233,8 @@ function computeSubjectBreakdown(data: AppData, references: AssessmentReference[
     bucket.count += 1
     bucket.attempts.push(attempt)
     if (attempt.completedAt > bucket.lastDate) bucket.lastDate = attempt.completedAt
-    const direct = references.find(
-      (reference) => reference.year === attempt.examYear && matchesAttemptReference(attempt, reference),
-    )
-    const linked = direct ?? (attempt.referenceId
-      ? references.find((reference) => reference.id === attempt.referenceId)
-      : undefined)
+    const direct = findAttemptReferenceForYear(attempt, references, attempt.examYear)
+    const linked = direct ?? findAttemptReferenceById(references, attempt.referenceId)
     if (linked) bucket.linkedCount += 1
     buckets.set(attempt.subject, bucket)
   }

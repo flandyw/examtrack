@@ -1,5 +1,6 @@
 import {
   analyseAttempt,
+  findAttemptReferenceById,
   normaliseComparisonName,
   type AssessmentReference,
   type ExamAttempt,
@@ -111,9 +112,7 @@ function compatibleReferences(attempt: ExamAttempt, references: AssessmentRefere
     ? subjectReferences
     : subjectReferences.filter((reference) => reference.year === distributionYear)
 
-  const explicitlyLinked = attempt.referenceId
-    ? availableReferences.find((reference) => reference.id === attempt.referenceId)
-    : undefined
+  const explicitlyLinked = findAttemptReferenceById(references, attempt.referenceId)
 
   const paper = normaliseComparisonName(attempt.paper)
   const paperMatches = availableReferences.filter(

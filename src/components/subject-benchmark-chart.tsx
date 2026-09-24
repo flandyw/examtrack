@@ -93,9 +93,9 @@ export function SubjectBenchmarkChart({
                   }}
                 />
                 <ChartLegend content={<ChartLegendContent />} />
-                <Bar dataKey="averageMark" fill="var(--color-averageMark)" radius={[0, 3, 3, 0]} />
-                <Bar dataKey="vcaaMeanPercentage" fill="var(--color-vcaaMeanPercentage)" radius={[0, 3, 3, 0]} />
-                <Bar dataKey="aPlusCutoffPercentage" fill="var(--color-aPlusCutoffPercentage)" radius={[0, 3, 3, 0]} />
+                <Bar dataKey="averageMark" fill="var(--color-averageMark)" radius={[0, 3, 3, 0]} isAnimationActive={false} />
+                <Bar dataKey="vcaaMeanPercentage" fill="var(--color-vcaaMeanPercentage)" radius={[0, 3, 3, 0]} isAnimationActive={false} />
+                <Bar dataKey="aPlusCutoffPercentage" fill="var(--color-aPlusCutoffPercentage)" radius={[0, 3, 3, 0]} isAnimationActive={false} />
               </BarChart>
             </ChartContainer>
             <p className="mt-3 text-xs text-muted-foreground">

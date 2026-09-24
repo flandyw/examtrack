@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { memo, useDeferredValue, useEffect, useMemo, useState } from "react"
 import { ArrowRight, LayoutGrid, List, Play, SlidersHorizontal, X, BookOpenCheck, FileDown, FileJson, Merge, NotebookPen, Plus, Search, Shuffle, SkipForward, Sparkles } from "lucide-react"
 import { toast } from "sonner"
 
@@ -45,7 +45,7 @@ import {
   type MistakeMergeField,
 } from "@/lib/mistake-autofill"
 import { formatChatGPTProgress, type ChatGPTProgress } from "@/lib/mistake-ai-core"
-import { findVcaaExamForAttempt, type VcaaStudyResources } from "@/lib/vcaa-resources"
+import { findCachedVcaaExamForAttempt, type VcaaStudyResources } from "@/lib/vcaa-resources"
 
 
 type PageTab = "study" | "schedule" | "alternative" | "browse" | "insights"
@@ -90,7 +90,7 @@ function canUseReviewShortcut(target: EventTarget | null) {
 }
 
 function ExamContext({ mistake, attempt, studies }: { mistake: Mistake; attempt?: ExamAttempt; studies: VcaaStudyResources[] }) {
-  const exam = attempt ? findVcaaExamForAttempt(attempt, studies) : undefined
+  const exam = attempt ? findCachedVcaaExamForAttempt(attempt, studies) : undefined
   return (
     <CardDescription>
       {attempt ? <>{attempt.title} · {attempt.paper}{exam ? <> · <a className="font-medium text-foreground underline underline-offset-4" href={exam.url} target="_blank" rel="noreferrer">Exam PDF</a></> : null}</> : "Deleted exam"}
@@ -274,7 +274,7 @@ function StudyQueue({ mistakes, attempts, studies, onReview, onBrowse, onEdit, o
   )
 }
 
-function BrowseCard({ mistake, attempt, studies, onEdit, onToggleSuspend, onDelete, selected, onSelect, compact, onPractice }: { selected: boolean; onSelect: () => void; compact: boolean; onPractice: () => void; mistake: Mistake; attempt?: ExamAttempt; studies: VcaaStudyResources[]; onEdit: (mistake: Mistake) => void; onToggleSuspend: (mistake: Mistake) => void; onDelete: (mistake: Mistake) => void }) {
+function BrowseCardInner({ mistake, attempt, studies, onEdit, onToggleSuspend, onDelete, selected, onSelect, compact, onPractice }: { selected: boolean; onSelect: () => void; compact: boolean; onPractice: () => void; mistake: Mistake; attempt?: ExamAttempt; studies: VcaaStudyResources[]; onEdit: (mistake: Mistake) => void; onToggleSuspend: (mistake: Mistake) => void; onDelete: (mistake: Mistake) => void }) {
   const schedule = getMistakeSchedule(mistake)
   const isDue = !mistake.suspended && new Date(schedule.dueAt).getTime() <= Date.now()
   return (
@@ -290,9 +290,7 @@ function BrowseCard({ mistake, attempt, studies, onEdit, onToggleSuspend, onDele
         </div>
       </CardHeader>
       <CardContent className="grid gap-3">
-        <div className={compact ? "line-clamp-1 text-sm text-muted-foreground" : "line-clamp-3 text-sm"}>
-          <MarkdownPreview inline>{mistake.questionText?.trim() || mistake.question}</MarkdownPreview>
-        </div>
+        <p className={compact ? "line-clamp-1 text-sm text-muted-foreground" : "line-clamp-3 text-sm text-muted-foreground"}>{mistake.questionText?.trim() || mistake.question}</p>
         <MistakeAttachments attachments={mistake.attachments} compact={compact} />
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <span>{mistake.suspended ? "Not in queue" : isDue ? "Due now" : `Due ${formatDueDate(schedule.dueAt)}`}</span>
@@ -300,19 +298,7 @@ function BrowseCard({ mistake, attempt, studies, onEdit, onToggleSuspend, onDele
           <span>{mistake.reviewHistory?.length ?? 0} reviews</span>
           {schedule.lapses ? <span>{schedule.lapses} lapse{schedule.lapses === 1 ? "" : "s"}</span> : null}
         </div>
-        <details className="rounded-lg border">
-          <summary className="cursor-pointer px-3 py-2 text-sm font-medium select-none">Answer and review history</summary>
-          <div className="grid gap-4 border-t p-3">
-            <div><p className="mb-2 text-sm font-medium">What went wrong</p><MarkdownPreview>{mistake.explanation}</MarkdownPreview></div>
-            <div><p className="mb-2 text-sm font-medium">Improved response or method</p><MarkdownPreview>{mistake.correction}</MarkdownPreview></div>
-            {mistake.reviewHistory?.length ? <div>
-              <p className="mb-2 text-sm font-medium">Recent reviews</p>
-              <ul className="grid gap-1 text-xs text-muted-foreground">
-                {mistake.reviewHistory.toReversed().slice(0, 5).map((review) => <li key={review.id}>{new Date(review.completedAt).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })} · {review.result}{review.intervalDays === undefined ? "" : ` · ${review.intervalDays}d interval`}</li>)}
-              </ul>
-            </div> : null}
-          </div>
-        </details>
+        <MistakeAnswerDetails mistake={mistake} />
       </CardContent>
       <CardFooter className="flex flex-wrap gap-2">
         <Button size="sm" variant="secondary" onClick={onPractice}><Play />Practise</Button>
@@ -321,6 +307,29 @@ function BrowseCard({ mistake, attempt, studies, onEdit, onToggleSuspend, onDele
         <Button size="sm" variant="ghost" onClick={() => onDelete(mistake)}>Delete</Button>
       </CardFooter>
     </Card>
+  )
+}
+
+const BrowseCard = memo(BrowseCardInner)
+
+// KaTeX + markdown parsing is the single most expensive synchronous cost on
+// this page. Only pay it when the user expands a card's answer section.
+function MistakeAnswerDetails({ mistake }: { mistake: Mistake }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <details className="rounded-lg border" onToggle={(event) => setOpen((event.currentTarget as HTMLDetailsElement).open)}>
+      <summary className="cursor-pointer px-3 py-2 text-sm font-medium select-none">Answer and review history</summary>
+      <div className="grid gap-4 border-t p-3">
+        <div><p className="mb-2 text-sm font-medium">What went wrong</p>{open ? <MarkdownPreview>{mistake.explanation}</MarkdownPreview> : <p className="text-sm text-muted-foreground">Expand to render formatting and maths.</p>}</div>
+        <div><p className="mb-2 text-sm font-medium">Improved response or method</p>{open ? <MarkdownPreview>{mistake.correction}</MarkdownPreview> : null}</div>
+        {mistake.reviewHistory?.length ? <div>
+          <p className="mb-2 text-sm font-medium">Recent reviews</p>
+          <ul className="grid gap-1 text-xs text-muted-foreground">
+            {mistake.reviewHistory.toReversed().slice(0, 5).map((review) => <li key={review.id}>{new Date(review.completedAt).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })} · {review.result}{review.intervalDays === undefined ? "" : ` · ${review.intervalDays}d interval`}</li>)}
+          </ul>
+        </div> : null}
+      </div>
+    </details>
   )
 }
 
@@ -436,6 +445,7 @@ export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleS
   const [mathsExamFilter, setMathsExamFilter] = useState<MathsExamFilter>("all")
   const [tab, setTab] = useState<PageTab>("browse")
   const [search, setSearch] = useState("")
+  const deferredSearch = useDeferredValue(search)
   const [browserFilter, setBrowserFilter] = useState<BrowserFilter>("all")
   const [category, setCategory] = useState("all")
   const [topic, setTopic] = useState("all")
@@ -469,8 +479,8 @@ export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleS
   const emptyFieldCount = useMemo(() => autofillCandidates.reduce((total, mistake) => total + getEmptyMistakeFields(mistake).length, 0), [autofillCandidates])
   const hasMergeableFields = useMemo(() => data.mistakes.some((mistake) => Boolean(mistake.areaOfStudy?.trim() || mistake.criterion?.trim())), [data.mistakes])
   const browsedMistakes = useMemo(() => {
-    return filterMistakeLibrary(visibleMistakes, attemptMap, dueIds, { search, browserFilter, category, topic, sort })
-  }, [visibleMistakes, attemptMap, dueIds, search, browserFilter, category, topic, sort])
+    return filterMistakeLibrary(visibleMistakes, attemptMap, dueIds, { search: deferredSearch, browserFilter, category, topic, sort })
+  }, [visibleMistakes, attemptMap, dueIds, deferredSearch, browserFilter, category, topic, sort])
   const selectedMistakes = browsedMistakes.filter((mistake) => selected.has(mistake.id))
   const worksheetMistakes = selectedMistakes.length ? selectedMistakes : browsedMistakes
   const categories = [...new Set(visibleMistakes.map((mistake) => mistake.category))].sort()
@@ -664,8 +674,8 @@ export function MistakesPage({ data, studies, onLog, onEdit, onReview, onToggleS
               <span className="text-muted-foreground" role="status">{browsedMistakes.length} of {visibleMistakes.length} cards{selectedMistakes.length ? " · " + selectedMistakes.length + " selected" : ""}</span>
             </div>
             {selectedMistakes.length ? <div className="flex flex-wrap items-center gap-2 rounded-xl border border-primary/25 bg-muted p-3" aria-label="Selected card actions"><span className="mr-auto text-sm font-medium">{selectedMistakes.length} selected</span><Button size="sm" variant="outline" disabled={selectedMistakes.every((mistake) => mistake.suspended)} onClick={() => { onSetSuspended(selectedMistakes.map((mistake) => mistake.id), true); setSelected(new Set()) }}>Pause reviews</Button><Button size="sm" variant="outline" disabled={selectedMistakes.every((mistake) => !mistake.suspended)} onClick={() => { onSetSuspended(selectedMistakes.map((mistake) => mistake.id), false); setSelected(new Set()) }}>Resume reviews</Button><Button size="sm" variant="outline" disabled={exporting} onClick={() => void exportWorksheet()}><FileDown />{exporting ? "Exporting…" : "Export selected"}</Button><Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}><X />Clear selection</Button></div> : null}
-            {browsedMistakes.length ? <div className={layout === "grid" ? "grid items-start gap-4 xl:grid-cols-2" : "grid gap-3"}>{browsedMistakes.map((mistake) => <BrowseCard key={mistake.id} mistake={mistake} attempt={attemptMap.get(mistake.attemptId)} studies={studies} onEdit={onEdit} onToggleSuspend={onToggleSuspend} onDelete={onDelete} selected={selected.has(mistake.id)} onSelect={() => toggleSelected(mistake.id)} compact={layout === "list"} onPractice={() => setPractice([mistake])} />)}</div> : <Empty className="min-h-64 rounded-xl border border-dashed"><EmptyHeader><EmptyMedia variant="icon"><NotebookPen /></EmptyMedia><EmptyTitle>{data.mistakes.length ? "No cards match this view" : "Your next breakthrough starts here"}</EmptyTitle><EmptyDescription>{data.mistakes.length ? "Adjust your filters to find another group of mistakes." : data.attempts.length ? "Log a missed question to save the lesson, build a practice set, and track your progress." : "Add an exam first, then log the questions you want to improve."}</EmptyDescription></EmptyHeader>{data.mistakes.length ? <Button variant="outline" onClick={() => { resetFilters(); setSubject("all"); setMathsExamFilter("all") }}>Reset all filters</Button> : <Button onClick={onLog} disabled={!data.attempts.length}><Plus />Log your first mistake</Button>}</Empty>}
-
+            {browsedMistakes.length ? <div className={layout === "grid" ? "grid items-start gap-4 xl:grid-cols-2" : "grid gap-3"}>{browsedMistakes.slice(0, 48).map((mistake) => <BrowseCard key={mistake.id} mistake={mistake} attempt={attemptMap.get(mistake.attemptId)} studies={studies} onEdit={onEdit} onToggleSuspend={onToggleSuspend} onDelete={onDelete} selected={selected.has(mistake.id)} onSelect={() => toggleSelected(mistake.id)} compact={layout === "list"} onPractice={() => setPractice([mistake])} />)}</div> : <Empty className="min-h-64 rounded-xl border border-dashed"><EmptyHeader><EmptyMedia variant="icon"><NotebookPen /></EmptyMedia><EmptyTitle>{data.mistakes.length ? "No cards match this view" : "Your next breakthrough starts here"}</EmptyTitle><EmptyDescription>{data.mistakes.length ? "Adjust your filters to find another group of mistakes." : data.attempts.length ? "Log a missed question to save the lesson, build a practice set, and track your progress." : "Add an exam first, then log the questions you want to improve."}</EmptyDescription></EmptyHeader>{data.mistakes.length ? <Button variant="outline" onClick={() => { resetFilters(); setSubject("all"); setMathsExamFilter("all") }}>Reset all filters</Button> : <Button onClick={onLog} disabled={!data.attempts.length}><Plus />Log your first mistake</Button>}</Empty>}
+            {browsedMistakes.length > 48 ? <p className="text-center text-xs text-muted-foreground">Showing 48 of {browsedMistakes.length} cards — refine the search to narrow the list.</p> : null}
           </div>
         </TabsContent>
       </Tabs>

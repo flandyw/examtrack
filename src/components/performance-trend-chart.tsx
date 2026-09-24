@@ -258,6 +258,7 @@ export function PerformanceTrendChart({
               strokeDasharray="5 3"
               connectNulls
               dot={false}
+              isAnimationActive={false}
             />
             <Line
               type="monotone"
@@ -266,6 +267,7 @@ export function PerformanceTrendChart({
               strokeWidth={1.5}
               connectNulls
               dot={false}
+              isAnimationActive={false}
             />
             <Line
               type="monotone"
@@ -277,6 +279,7 @@ export function PerformanceTrendChart({
                 return <Dot cx={cx} cy={cy} r={3.5} fill="var(--color-percentage)" stroke="var(--background)" strokeWidth={1.5} />
               }}
               activeDot={{ r: 5 }}
+              isAnimationActive={false}
             />
           </LineChart>
         </ChartContainer>

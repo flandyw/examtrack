@@ -4,7 +4,7 @@ import {
   type AssessmentReference,
   type ExamAttempt,
 } from "@/lib/exam-data"
-import { getVcaaExamPaper, getVcaaExams, type VcaaStudyResources } from "@/lib/vcaa-resources"
+import { getCachedVcaaExams, getVcaaExamPaper, type VcaaStudyResources } from "@/lib/vcaa-resources"
 import {
   identifyDifficultyProvider,
   resolveDifficultySettings,
@@ -80,7 +80,7 @@ export function buildExamSuggestions(
     const key = suggestionKey(suggestion)
     if (!unique.has(key)) unique.set(key, suggestion)
   }
-  for (const exam of getVcaaExams(studies)) {
+  for (const exam of getCachedVcaaExams(studies)) {
     if (exam.year === null) continue
     const paper = getVcaaExamPaper(exam)
     const fallbackReference = references.find((reference) =>

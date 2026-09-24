@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useDeferredValue, useMemo, useState } from "react"
 import { BarChart3, Check, ExternalLink, FileCheck2, Play, Search } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -17,11 +17,11 @@ import {
   findVcaaExamAttempt,
   findVcaaExamReference,
   formatReferenceFreshness,
+  getCachedVcaaExams,
   getVcaaExamCompanions,
   getVcaaExamPaper,
   getVcaaExamProvider,
   getVcaaExamResourcesUrl,
-  getVcaaExams,
   isVcaaExamLogged,
   type VcaaExamResource,
   type VcaaResource,
@@ -77,24 +77,26 @@ export function ExamLibrary({
   onStart: (preset: ExamTimerPreset) => void
   onCompare: (attempt: ExamAttempt) => void
 }) {
-  const exams = useMemo(() => getVcaaExams(studies), [studies])
+  const exams = useMemo(() => getCachedVcaaExams(studies), [studies])
   const subjects = useMemo(() => prioritiseSubjects(exams.map((exam) => exam.studyName), preferredSubjects), [exams, preferredSubjects])
   const [subject, setSubject] = useState(() => firstPreferredSubject(subjects, preferredSubjects) || subjects[0] || "all")
   const [query, setQuery] = useState("")
+  const deferredQuery = useDeferredValue(query)
   const [completion, setCompletion] = useState<CompletionFilter>("all")
   const resourcesByStudy = useMemo(() => new Map(studies.map((study) => [normaliseComparisonName(study.studyName), study])), [studies])
   const isCompleted = (exam: VcaaExamResource) => isVcaaExamLogged(exam, attempts) || completedExamIds.includes(exam.url)
   const filtered = useMemo(() => {
     const priorities = new Map(preferredSubjects.map((item, index) => [normaliseComparisonName(item), index]))
+    const needle = deferredQuery.trim().toLowerCase()
     return exams.filter((exam) => {
       const done = isVcaaExamLogged(exam, attempts) || completedExamIds.includes(exam.url)
       return (subject === "all" || exam.studyName === subject) &&
         (completion === "all" || (completion === "completed" ? done : !done)) &&
-        `${exam.studyName} ${exam.year} ${exam.label}`.toLowerCase().includes(query.trim().toLowerCase())
+        (!needle || `${exam.studyName} ${exam.year} ${exam.label}`.toLowerCase().includes(needle))
     }).toSorted((first, second) =>
       (priorities.get(normaliseComparisonName(first.studyName)) ?? Infinity) - (priorities.get(normaliseComparisonName(second.studyName)) ?? Infinity) ||
       (second.year ?? 0) - (first.year ?? 0) || paperOrder(first) - paperOrder(second) || first.label.localeCompare(second.label))
-  }, [attempts, completedExamIds, completion, exams, preferredSubjects, query, subject])
+  }, [attempts, completedExamIds, completion, exams, preferredSubjects, deferredQuery, subject])
 
   const focusSubject = subject === "all" ? firstPreferredSubject(subjects, preferredSubjects) || subjects[0] : subject
   const focusStudy = resourcesByStudy.get(normaliseComparisonName(focusSubject))
@@ -165,7 +167,7 @@ export function ExamLibrary({
         <span className="self-center text-sm text-muted-foreground">{filtered.length} exams · {formatReferenceFreshness(generatedAt)}</span>
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
-        {filtered.map((exam) => {
+        {filtered.slice(0, 40).map((exam) => {
           const study = studies.find((item) => item.pageUrl === exam.pageUrl) ?? resourcesByStudy.get(normaliseComparisonName(exam.studyName))
           const reference = findVcaaExamReference(exam, references)
           const companion = getVcaaExamCompanions(exam, study)
@@ -202,6 +204,7 @@ export function ExamLibrary({
           </Card>
         )})}
       </div>
+      {filtered.length > 40 ? <p className="text-center text-xs text-muted-foreground">Showing 40 of {filtered.length} exams — refine the subject or search to narrow the list.</p> : null}
       {!filtered.length ? <p className="rounded-lg border p-8 text-center text-sm text-muted-foreground">No matching VCAA exams.</p> : null}
     </div>
   )

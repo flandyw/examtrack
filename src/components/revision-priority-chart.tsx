@@ -1,3 +1,4 @@
+import { useMemo } from "react"
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
@@ -10,7 +11,7 @@ const chartConfig = {
 }
 
 export function RevisionPriorityChart({ mistakes }: { mistakes: Mistake[] }) {
-  const priorities = buildRevisionPriorities(mistakes)
+  const priorities = useMemo(() => buildRevisionPriorities(mistakes), [mistakes])
   const unresolved = priorities.reduce((total, item) => total + item.unresolved, 0)
   const top = priorities.find((item) => item.unresolved > 0)
   const summary = top
@@ -47,8 +48,8 @@ export function RevisionPriorityChart({ mistakes }: { mistakes: Mistake[] }) {
                   tick={{ fontSize: 11 }}
                 />
                 <ChartTooltip content={<ChartTooltipContent />} />
-                <Bar dataKey="unresolved" stackId="mistakes" fill="var(--color-unresolved)" radius={[4, 0, 0, 4]} />
-                <Bar dataKey="resolved" stackId="mistakes" fill="var(--color-resolved)" radius={[0, 4, 4, 0]} />
+                <Bar dataKey="unresolved" stackId="mistakes" fill="var(--color-unresolved)" radius={[4, 0, 0, 4]} isAnimationActive={false} />
+                <Bar dataKey="resolved" stackId="mistakes" fill="var(--color-resolved)" radius={[0, 4, 4, 0]} isAnimationActive={false} />
               </BarChart>
             </ChartContainer>
             <p className="mt-3 text-xs text-muted-foreground">

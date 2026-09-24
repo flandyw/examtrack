@@ -1,4 +1,4 @@
-import { Fragment, lazy, Suspense, useEffect, useMemo, useState } from "react"
+import { Fragment, lazy, Suspense, useDeferredValue, useEffect, useMemo, useState } from "react"
 import { ChevronDown, ChevronUp, ChevronsUpDown, CircleAlert, MoreHorizontal } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -54,20 +54,24 @@ export function ExamTable({
   onDelete: (attempt: ExamAttempt) => void
 }) {
   const [query, setQuery] = useState("")
+  const deferredQuery = useDeferredValue(query)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [sort, setSort] = useState<{ key: ExamSortKey, direction: SortDirection }>({ key: "completedAt", direction: "desc" })
   const comparisonYears = useMemo(
     () => [...new Set(references.map((reference) => reference.year))].toSorted((a, b) => b - a),
     [references],
   )
-  const rows = useMemo(() => attempts
-    .filter((attempt) => `${attempt.title} ${attempt.subject} ${attempt.provider} ${attempt.paper}`.toLowerCase().includes(query.toLowerCase()))
-    .map((attempt) => {
-      const reference = findAttemptReferenceForYear(attempt, references, comparisonYear)
-      return { attempt, reference, analysis: analyseAttempt(attempt, reference) }
-    })
-    .toSorted((left, right) => compareExamRows(left, right, sort.key, sort.direction)),
-  [attempts, comparisonYear, query, references, sort])
+  const rows = useMemo(() => {
+    const needle = deferredQuery.trim().toLowerCase()
+    return attempts
+      .filter((attempt) => !needle || `${attempt.title} ${attempt.subject} ${attempt.provider} ${attempt.paper}`.toLowerCase().includes(needle))
+      .map((attempt) => {
+        const reference = findAttemptReferenceForYear(attempt, references, comparisonYear)
+        return { attempt, reference, analysis: analyseAttempt(attempt, reference) }
+      })
+      .toSorted((left, right) => compareExamRows(left, right, sort.key, sort.direction))
+  },
+  [attempts, comparisonYear, deferredQuery, references, sort])
   const handleSort = (key: ExamSortKey) => setSort((current) => ({
     key,
     direction: current.key === key && current.direction === "desc" ? "asc" : "desc",
@@ -126,7 +130,7 @@ export function ExamTable({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map(({ attempt, reference, analysis }) => {
+                {rows.slice(0, 60).map(({ attempt, reference, analysis }) => {
                   const expanded = expandedId === attempt.id
                   return (
                     <Fragment key={attempt.id}>
@@ -161,6 +165,11 @@ export function ExamTable({
                     </Fragment>
                   )
                 })}
+                {rows.length > 60 ? (
+                  <caption className="px-4 py-3 text-left text-xs text-muted-foreground">
+                    Showing the first 60 of {rows.length} matching exams — refine the search to narrow the list.
+                  </caption>
+                ) : null}
               </TableBody>
             </Table>
           </div>

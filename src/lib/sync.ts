@@ -247,6 +247,42 @@ export async function syncAppData(data: AppData, userId: string): Promise<AppDat
 
 export type SyncStatus = "unconfigured" | "signed-out" | "syncing" | "synced" | "error"
 
+function snapshotVersion(data: AppData) {
+  // Cheap change token: avoids JSON.stringify(current) on every keystroke.
+  // Lengths + updatedAt markers catch every mutation path (all writers bump
+  // an updatedAt timestamp), while the learning updatedAt covers task edits.
+  return [
+    data.attempts.length,
+    data.mistakes.length,
+    data.sacRecords.length,
+    data.sacRecordsUpdatedAt,
+    data.subjectsUpdatedAt,
+    data.trackedExamIdsUpdatedAt,
+    data.completedExamIdsUpdatedAt,
+    data.activeExamTimerUpdatedAt,
+    data.activeSacTimerUpdatedAt,
+    data.atarEstimatesUpdatedAt,
+    data.learning.updatedAt,
+    data.mistakeInsights?.questionsGeneratedAt ?? data.mistakeInsights?.generatedAt ?? "",
+    data.alternativeMistakeDeck?.updatedAt ?? "",
+    data.examDifficulty?.updatedAt ?? "",
+    data.examProgression?.updatedAt ?? "",
+  ].join("|")
+}
+
+function shallowEqualAppData(first: AppData, second: AppData) {
+  if (first === second) return true
+  if (snapshotVersion(first) !== snapshotVersion(second)) return false
+  // Same token but possibly reordered ids — compare id sets cheaply.
+  const sameIds = (a: { id: string }[], b: { id: string }[]) => {
+    if (a.length !== b.length) return false
+    if (a === b) return true
+    const ids = new Set(a.map((item) => item.id))
+    return b.every((item) => ids.has(item.id))
+  }
+  return sameIds(first.attempts, second.attempts) && sameIds(first.mistakes, second.mistakes)
+}
+
 export function useSupabaseSync(data: AppData, setData: Dispatch<SetStateAction<AppData>>) {
   const [user, setUser] = useState<User | null>(null)
   const [status, setStatus] = useState<SyncStatus>(supabase ? "signed-out" : "unconfigured")
@@ -254,6 +290,7 @@ export function useSupabaseSync(data: AppData, setData: Dispatch<SetStateAction<
   const [refresh, setRefresh] = useState(0)
   const syncTask = useRef<Promise<unknown>>(Promise.resolve())
   const syncedData = useRef<AppData | null>(null)
+  const lastSyncedVersion = useRef<string | null>(null)
 
   useEffect(() => {
     if (!user) return
@@ -276,6 +313,10 @@ export function useSupabaseSync(data: AppData, setData: Dispatch<SetStateAction<
     if (!supabase || !user) return
     let cancelled = false
     const timeout = window.setTimeout(() => {
+      // Skip the round-trip entirely when nothing meaningful changed since
+      // the last successful sync (e.g. transient render-only state).
+      const version = snapshotVersion(data)
+      if (lastSyncedVersion.current === version) return
       setStatus("syncing")
       // Serialize requests so an older local snapshot cannot finish last.
       const task = syncTask.current.catch(() => {}).then(() => cancelled ? null : syncAppData(data, user.id))
@@ -283,14 +324,15 @@ export function useSupabaseSync(data: AppData, setData: Dispatch<SetStateAction<
       task
         .then((merged) => {
           if (cancelled || !merged) return
-          syncedData.current = JSON.stringify(data) === JSON.stringify(merged) ? data : merged
-          setData((current) => JSON.stringify(current) === JSON.stringify(merged) ? current : merged)
+          lastSyncedVersion.current = snapshotVersion(merged)
+          syncedData.current = shallowEqualAppData(data, merged) ? data : merged
+          setData((current) => shallowEqualAppData(current, merged) ? current : merged)
           setStatus("synced")
         })
         .catch(() => {
           if (!cancelled) setStatus("error")
         })
-    }, 300)
+    }, 1500)
     return () => {
       cancelled = true
       window.clearTimeout(timeout)

@@ -92,7 +92,7 @@ export function VcaaPercentileTrendChart({
                     </div>
                   )
                 }} />
-                <Line type="monotone" dataKey="percentile" stroke="var(--color-percentile)" strokeWidth={2.5} connectNulls dot={(props) => {
+                <Line type="monotone" dataKey="percentile" stroke="var(--color-percentile)" strokeWidth={2.5} connectNulls isAnimationActive={false} dot={(props) => {
                   const { cx, cy } = props as { cx: number; cy: number }
                   return <Dot cx={cx} cy={cy} r={3.5} fill="var(--color-percentile)" stroke="var(--background)" strokeWidth={1.5} />
                 }} activeDot={{ r: 5 }} />

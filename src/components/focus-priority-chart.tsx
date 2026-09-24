@@ -58,7 +58,7 @@ export function FocusPriorityChart({ attempts, mistakes }: { attempts: ExamAttem
                     </div>
                   )
                 }} />
-                <Bar dataKey="priorityScore" fill="var(--color-priorityScore)" radius={[0, 4, 4, 0]} />
+                <Bar dataKey="priorityScore" fill="var(--color-priorityScore)" radius={[0, 4, 4, 0]} isAnimationActive={false} />
               </BarChart>
             </ChartContainer>
             <p className="mt-3 text-xs text-muted-foreground">

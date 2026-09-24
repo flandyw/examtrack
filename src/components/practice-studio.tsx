@@ -309,8 +309,8 @@ export function PracticeStudio({ data, initialSubject, onChange, onComplete, onO
   const [error, setError] = useState<string | null>(null)
   const [historyTab, setHistoryTab] = useState<HistoryTab>(unfinishedSessions.length ? "current" : "completed")
   const [deleteCandidate, setDeleteCandidate] = useState<PracticeSession | null>(null)
-  const now = useTickingNow(1000)
   const active = sessions.find((session) => session.id === activeId)
+  const now = useTickingNow(active ? 1000 : 60_000)
   const attemptMap = useMemo(() => new Map(data.attempts.map((attempt) => [attempt.id, attempt])), [data.attempts])
   const availableAreas = useMemo(() => [...new Set(data.mistakes.flatMap((mistake) => {
     if (attemptMap.get(mistake.attemptId)?.subject.toLowerCase() !== subject.toLowerCase() || mistake.suspended) return []

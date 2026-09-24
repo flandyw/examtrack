@@ -71,9 +71,9 @@ export function StudyScoreTrendChart({ points }: { points: StudyScoreTrendPoint[
                     </div>
                   )
                 }} />
-                <Line type="monotone" dataKey="low" stroke="var(--color-low)" strokeWidth={1.5} strokeDasharray="4 3" dot={false} connectNulls />
-                <Line type="monotone" dataKey="high" stroke="var(--color-high)" strokeWidth={1.5} strokeDasharray="4 3" dot={false} connectNulls />
-                <Line type="monotone" dataKey="studyScore" stroke="var(--color-studyScore)" strokeWidth={2.5} dot={(props) => {
+                <Line type="monotone" dataKey="low" stroke="var(--color-low)" strokeWidth={1.5} strokeDasharray="4 3" dot={false} connectNulls isAnimationActive={false} />
+                <Line type="monotone" dataKey="high" stroke="var(--color-high)" strokeWidth={1.5} strokeDasharray="4 3" dot={false} connectNulls isAnimationActive={false} />
+                <Line type="monotone" dataKey="studyScore" stroke="var(--color-studyScore)" strokeWidth={2.5} isAnimationActive={false} dot={(props) => {
                   const { cx, cy } = props as { cx: number; cy: number }
                   return <Dot cx={cx} cy={cy} r={3.5} fill="var(--color-studyScore)" stroke="var(--background)" strokeWidth={1.5} />
                 }} activeDot={{ r: 5 }} />

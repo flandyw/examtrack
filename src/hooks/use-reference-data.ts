@@ -42,6 +42,18 @@ export function useReferenceData() {
     setScalingStatus("loading")
     setTimetableStatus("loading")
 
+    // Dashboard-critical data first: grade distributions unblock the
+    // dashboard/library/VCAA views. Everything else is fetched after idle so
+    // first paint + interaction are not blocked parsing ~3MB of JSON.
+    const fetchDeferred = (task: () => void) => {
+      const win = window as Window & { requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number }
+      if (typeof win.requestIdleCallback === "function") {
+        win.requestIdleCallback(task, { timeout: 1500 })
+      } else {
+        window.setTimeout(task, 0)
+      }
+    }
+
     void fetchJson<{ generatedAt?: string; assessments?: AssessmentReference[] }>(
       "/vcaa-grade-distributions.json",
       controller.signal,
@@ -54,27 +66,36 @@ export function useReferenceData() {
       if (active) setReferencesStatus("error")
     })
 
-    void fetchJson<{ generatedAt?: string; studies?: VcaaStudyResources[] }>(
-      "/vcaa-exam-resources.json",
-      controller.signal,
-    ).then((result) => {
+    fetchDeferred(() => {
       if (!active) return
-      setResourceStudies(Array.isArray(result.studies) ? result.studies : [])
-      setResourcesGeneratedAt(typeof result.generatedAt === "string" ? result.generatedAt : null)
-      setStudiesStatus("ready")
-    }).catch(() => {
-      if (active) setStudiesStatus("error")
-    })
+      void fetchJson<{ generatedAt?: string; studies?: VcaaStudyResources[] }>(
+        "/vcaa-exam-resources.json",
+        controller.signal,
+      ).then((result) => {
+        if (!active) return
+        setResourceStudies(Array.isArray(result.studies) ? result.studies : [])
+        setResourcesGeneratedAt(typeof result.generatedAt === "string" ? result.generatedAt : null)
+        setStudiesStatus("ready")
+      }).catch(() => {
+        if (active) setStudiesStatus("error")
+      })
 
-    void fetchJson<{ references?: ScalingReference[] }>(
-      "/vtac-scaling-reports.json",
-      controller.signal,
-    ).then((result) => {
-      if (!active) return
-      setScalingReferences(Array.isArray(result.references) ? result.references : [])
-      setScalingStatus("ready")
-    }).catch(() => {
-      if (active) setScalingStatus("error")
+      // Scaling (~1.1MB) is only needed by the predictor, so load it last.
+      // Idle first, then also wait until the predictor/view that needs it is
+      // likely — here simply a second idle tick keeps startup light.
+      fetchDeferred(() => {
+        if (!active) return
+        void fetchJson<{ references?: ScalingReference[] }>(
+          "/vtac-scaling-reports.json",
+          controller.signal,
+        ).then((result) => {
+          if (!active) return
+          setScalingReferences(Array.isArray(result.references) ? result.references : [])
+          setScalingStatus("ready")
+        }).catch(() => {
+          if (active) setScalingStatus("error")
+        })
+      })
     })
 
     void loadTimetableWithStatus(controller.signal).then((result) => {

@@ -38,16 +38,16 @@ export type GradeBand = {
   maxScore: number | null
   count: number | null
   percentage: number | null
-  sortOrder: number
+  sortOrder?: number
 }
 
 export type AssessmentReference = {
   id: string
-  studyCode: string
+  studyCode?: string
   studyName: string
-  displayName: string
+  displayName?: string
   year: number
-  gaCode: string
+  gaCode?: string
   name: string
   maxScore: number
   sourceUrl: string
@@ -526,13 +526,20 @@ export function validateQuestionResults(results: QuestionResult[]): string | nul
   return null
 }
 
+const normaliseComparisonCache = new Map<string, string>()
+
 export function normaliseComparisonName(value: string) {
-  return value
+  const cached = normaliseComparisonCache.get(value)
+  if (cached !== undefined) return cached
+  const normalised = value
     .toLowerCase()
     .replace(/\bwritten\b/g, "")
     .replace(/\b(examination|paper)\b/g, "exam")
     .replace(/[^a-z0-9]+/g, " ")
     .trim()
+  if (normaliseComparisonCache.size > 4000) normaliseComparisonCache.clear()
+  normaliseComparisonCache.set(value, normalised)
+  return normalised
 }
 
 export function formatOrdinal(value: number) {
@@ -582,7 +589,11 @@ export type VcaaYearInsight = {
   sourceUrl: string
 }
 
+const distributionStatsCache = new WeakMap<AssessmentReference, DistributionStats>()
+
 export function computeDistributionStats(reference: AssessmentReference): DistributionStats {
+  const cached = distributionStatsCache.get(reference)
+  if (cached) return cached
   const bands = reference.gradeBands.toSorted(
     (first, second) => (first.minScore ?? 0) - (second.minScore ?? 0),
   )
@@ -619,7 +630,9 @@ export function computeDistributionStats(reference: AssessmentReference): Distri
     cumulativePercentage += percentage
   }
 
-  return { mean, median, variance, stdDev, meanPercentage }
+  const stats: DistributionStats = { mean, median, variance, stdDev, meanPercentage }
+  distributionStatsCache.set(reference, stats)
+  return stats
 }
 
 export function buildVcaaYearInsights(
@@ -660,26 +673,56 @@ export function getReferencesForAttempt(
     .toSorted((a, b) => b.year - a.year)
 }
 
+type ReferenceIndex = {
+  references: AssessmentReference[]
+  byYear: Map<number, Map<string, AssessmentReference[]>>
+  byId: Map<string, AssessmentReference>
+}
+
+const referenceIndexCache = new WeakMap<AssessmentReference[], ReferenceIndex>()
+
+function referenceIndexFor(references: AssessmentReference[]): ReferenceIndex {
+  let index = referenceIndexCache.get(references)
+  if (index) return index
+  const byYear = new Map<number, Map<string, AssessmentReference[]>>()
+  const byId = new Map<string, AssessmentReference>()
+  for (const reference of references) {
+    byId.set(reference.id, reference)
+    const subjectKey = normaliseComparisonName(reference.studyName)
+    const yearBucket = byYear.get(reference.year) ?? new Map<string, AssessmentReference[]>()
+    const list = yearBucket.get(subjectKey) ?? []
+    list.push(reference)
+    yearBucket.set(subjectKey, list)
+    byYear.set(reference.year, yearBucket)
+  }
+  index = { references, byYear, byId }
+  referenceIndexCache.set(references, index)
+  return index
+}
+
 export function findAttemptReferenceForYear(
   attempt: Pick<ExamAttempt, "subject" | "paper">,
   references: AssessmentReference[],
   year: number,
 ): AssessmentReference | undefined {
-  const subject = normaliseComparisonName(attempt.subject)
-  const candidates = references.filter(
-    (reference) => reference.year === year && normaliseComparisonName(reference.studyName) === subject,
-  )
+  const candidates = referenceIndexFor(references).byYear.get(year)?.get(normaliseComparisonName(attempt.subject)) ?? []
   return candidates.find((reference) => matchesAttemptReference(attempt, reference)) ??
     (candidates.length === 1 ? candidates[0] : undefined)
+}
+
+export function findAttemptReferenceById(
+  references: AssessmentReference[],
+  id: string | null | undefined,
+): AssessmentReference | undefined {
+  if (!id) return undefined
+  return referenceIndexFor(references).byId.get(id)
 }
 
 export function findAttemptReference(
   attempt: ExamAttempt,
   references: AssessmentReference[],
 ): AssessmentReference | undefined {
-  return findAttemptReferenceForYear(attempt, references, attempt.examYear) ?? (attempt.referenceId
-    ? references.find((reference) => reference.id === attempt.referenceId)
-    : undefined)
+  return findAttemptReferenceForYear(attempt, references, attempt.examYear) ?? findAttemptReferenceById(references, attempt.referenceId)
 }
 
 export type AttemptBenchmark = {

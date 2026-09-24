@@ -158,7 +158,12 @@ export default function App() {
     return [...ids]
   }, [data.attempts, data.trackedExamIds, timetable])
 
-  useEffect(() => saveAppData(data), [data])
+  useEffect(() => {
+    // Serialize the full store off the critical path: a keystroke currently
+    // triggers a multi-hundred-KB JSON.stringify on every render commit.
+    const id = window.setTimeout(() => saveAppData(data), 400)
+    return () => window.clearTimeout(id)
+  }, [data])
   useEffect(() => {
     // The link travels with the exam, so another device can retry a paused
     // Focal update even when the original device went offline before sending.

@@ -65,7 +65,7 @@ export function SacTimer({ records, subjects, preferredSubjects, initialRecord, 
   const [notes, setNotes] = useState(initialRecord?.notes ?? "")
   const [performanceContext, setPerformanceContext] = useState<PerformanceContext>(initialRecord?.performanceContext ?? {})
   const [error, setError] = useState<string | null>(null)
-  const now = useTickingNow(250)
+  const now = useTickingNow(session ? 1000 : 60_000)
 
   useEffect(() => {
     if (!migratedLegacySession.current) {

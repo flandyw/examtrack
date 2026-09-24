@@ -64,8 +64,8 @@ export function ImprovementOutlookChart({ attempts, difficultySettings }: { atte
                   )
                 }} />
                 <ChartLegend content={<ChartLegendContent />} />
-                <Bar dataKey="currentAverage" fill="var(--color-currentAverage)" radius={[0, 3, 3, 0]} />
-                <Bar dataKey="projectedNext" fill="var(--color-projectedNext)" radius={[0, 3, 3, 0]} />
+                <Bar dataKey="currentAverage" fill="var(--color-currentAverage)" radius={[0, 3, 3, 0]} isAnimationActive={false} />
+                <Bar dataKey="projectedNext" fill="var(--color-projectedNext)" radius={[0, 3, 3, 0]} isAnimationActive={false} />
               </BarChart>
             </ChartContainer>
             <p className="mt-3 text-xs text-muted-foreground">

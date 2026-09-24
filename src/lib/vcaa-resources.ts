@@ -52,10 +52,30 @@ function getResourceStudyName(resource: VcaaResource, study: VcaaStudyResources)
 }
 
 export function getVcaaExams(studies: VcaaStudyResources[]): VcaaExamResource[] {
-  const exams = studies.flatMap((study) => study.resources
-    .filter(isExamDocument)
-    .map((resource) => ({ ...resource, studyName: getResourceStudyName(resource, study), pageUrl: study.pageUrl })))
-  return exams.filter((exam, index) => exams.findIndex((candidate) => candidate.url === exam.url && candidate.label === exam.label) === index)
+  const seen = new Set<string>()
+  const exams: VcaaExamResource[] = []
+  for (const study of studies) {
+    for (const resource of study.resources) {
+      if (!isExamDocument(resource)) continue
+      const exam = { ...resource, studyName: getResourceStudyName(resource, study), pageUrl: study.pageUrl }
+      const key = `${exam.url}|${exam.label}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      exams.push(exam)
+    }
+  }
+  return exams
+}
+
+const vcaaExamsCache = new WeakMap<VcaaStudyResources[], VcaaExamResource[]>()
+
+export function getCachedVcaaExams(studies: VcaaStudyResources[]): VcaaExamResource[] {
+  let cached = vcaaExamsCache.get(studies)
+  if (!cached) {
+    cached = getVcaaExams(studies)
+    vcaaExamsCache.set(studies, cached)
+  }
+  return cached
 }
 
 export function getVcaaExamProvider(exam: Pick<VcaaExamResource, "pageUrl" | "url">) {
@@ -139,4 +159,24 @@ export function findVcaaExamForAttempt(attempt: ExamAttempt, studies: VcaaStudyR
     normaliseComparisonName(getVcaaExamProvider(exam)) === provider)
   return candidates.find((exam) => normaliseComparisonName(getVcaaExamPaper(exam)) === paper) ??
     (paper === "exam" && candidates.length === 1 ? candidates[0] : undefined)
+}
+
+const vcaaForAttemptCache = new WeakMap<VcaaStudyResources[], Map<string, VcaaExamResource | undefined>>()
+
+function attemptVcaaKey(attempt: ExamAttempt) {
+  return `${normaliseComparisonName(attempt.provider)}|${attempt.examYear}|${normaliseComparisonName(attempt.subject)}|${normaliseComparisonName(attempt.paper)}`
+}
+
+export function findCachedVcaaExamForAttempt(attempt: ExamAttempt, studies: VcaaStudyResources[]) {
+  let bucket = vcaaForAttemptCache.get(studies)
+  if (!bucket) {
+    bucket = new Map()
+    vcaaForAttemptCache.set(studies, bucket)
+  }
+  const key = attemptVcaaKey(attempt)
+  if (bucket.has(key)) return bucket.get(key)
+  const result = findVcaaExamForAttempt(attempt, studies)
+  bucket.set(key, result)
+  if (bucket.size > 2000) bucket.clear()
+  return result
 }

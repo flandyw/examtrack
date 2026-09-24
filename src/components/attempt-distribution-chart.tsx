@@ -261,6 +261,7 @@ export function AttemptDistributionChart({
               strokeWidth={2}
               fill={`url(#${gradientId})`}
               dot={false}
+              isAnimationActive={false}
             />
             {distributionLines.map((line) => (
               <ReferenceLine
@@ -285,6 +286,7 @@ export function AttemptDistributionChart({
                   dataKey="attemptDensity"
                   tooltipType="none"
                   fill="var(--color-attempt)"
+                  isAnimationActive={false}
                 />
               </>
             ) : null}

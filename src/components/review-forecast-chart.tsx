@@ -30,7 +30,7 @@ export function ReviewForecastChart({ mistakes }: { mistakes: Mistake[] }) {
             <XAxis dataKey="label" tickLine={false} axisLine={false} minTickGap={20} tick={{ fontSize: 10 }} />
             <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={30} />
             <ChartTooltip content={<ChartTooltipContent />} />
-            <Bar dataKey="due" fill="var(--color-due)" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="due" fill="var(--color-due)" radius={[4, 4, 0, 0]} isAnimationActive={false} />
           </BarChart>
         </ChartContainer>
         <p className="mt-3 text-xs text-muted-foreground">

@@ -110,7 +110,7 @@ export function ExamTimer({ progression, onProgressionChange, attempts, referenc
     [attempts, history.examDifficulty, preferredSubjects, references],
   )
   const latestAttempt = useMemo(() => findLatestAttempt(attempts), [attempts])
-  const now = useTickingNow(250)
+  const now = useTickingNow(session ? 1000 : 60_000)
   const reportUrl = useMemo(() => studies.find((study) => study.studyName.toLowerCase() === (session?.subject ?? subject).toLowerCase())?.resources.find((resource) => resource.kind === "report" && resource.year === (session?.examYear ?? examYear))?.url, [examYear, session?.examYear, session?.subject, studies, subject])
   const paperUrl = useMemo(() => studies.find((study) => study.studyName.toLowerCase() === (session?.subject ?? subject).toLowerCase())?.resources.find((resource) => resource.kind === "exam" && resource.year === (session?.examYear ?? examYear) && (!session?.paper || resource.label.toLowerCase().includes(session.paper.toLowerCase()) || session.paper.toLowerCase().includes(resource.label.toLowerCase())))?.url, [examYear, session?.examYear, session?.paper, session?.subject, studies, subject])
 

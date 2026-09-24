@@ -85,7 +85,7 @@ function SacTrend({ records }: { records: SacRecord[] }) {
               const point = payload[0].payload as (typeof points)[number]
               return <div className="min-w-48 rounded-lg border bg-background p-3 text-xs shadow-md"><p className="font-medium">{point.title}</p><p className="text-muted-foreground">{point.subject} · {point.provider}{point.sacNumber ? ` · SAC ${point.sacNumber}` : ""} · {point.date}</p><p className="mt-1.5 font-mono font-medium tabular-nums">{point.score}/{point.maxScore} · {point.percentage.toFixed(1)}%</p></div>
             }} />
-            <Line type="monotone" dataKey="percentage" stroke="var(--color-percentage)" strokeWidth={2.5} dot={{ r: 4, fill: "var(--color-percentage)" }} activeDot={{ r: 6 }} />
+            <Line type="monotone" dataKey="percentage" stroke="var(--color-percentage)" strokeWidth={2.5} dot={{ r: 4, fill: "var(--color-percentage)" }} activeDot={{ r: 6 }} isAnimationActive={false} />
           </LineChart>
         </ChartContainer> : <div className="rounded-md border bg-muted/30 px-4 py-10 text-center text-sm text-muted-foreground">No completed SAC results yet.</div>}
       </CardContent>
