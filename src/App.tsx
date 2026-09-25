@@ -36,7 +36,14 @@ import {
 } from "@/lib/exam-data"
 import { downloadAppData, loadAppData, parseAppDataFile, saveAppData } from "@/lib/storage"
 import { useSupabaseSync } from "@/lib/sync"
-import { flushFocalTimerOutbox, publishFocalTimer } from "@/lib/focal-timer"
+import {
+  flushFocalTimerOutbox,
+  parseSharedFocalTimerState,
+  publishFocalTimer,
+  readSharedFocalSessionChange,
+} from "@/lib/focal-timer"
+import { focalSupabase } from "@/lib/focal-supabase"
+import { pauseExamSession, resumeExamSession } from "@/lib/ongoing-timers"
 import { suggestTimetableForAttempt, formatExamLabel } from "@/lib/timetable"
 import { ExamTrackerPicker } from "@/components/exam-tracker-picker"
 import type { ExamTimerPreset } from "@/components/exam-timer"
@@ -50,6 +57,7 @@ import {
 import { getViewLabel } from "@/lib/navigation"
 import { useReferenceData } from "@/hooks/use-reference-data"
 import { useFocalAccount } from "@/hooks/use-focal-account"
+import { SharedStudySessions } from "@/components/shared-study-sessions"
 import { finalisePracticeSession, localDate, materialiseTask, type LearningWorkspaceUpdate, type PracticeSession, type StudyGoal } from "@/lib/learning-workspace"
 import { applyMistakeAutofills, applyMistakeFieldMergePlan, type MistakeAutofill, type MistakeFieldMergePlan } from "@/lib/mistake-autofill"
 import type { VcaaExplorerPreset } from "@/components/vcaa-explorer"
@@ -170,6 +178,81 @@ export default function App() {
     if (!focal.user || !data.activeExamTimer?.focal) return
     void publishFocalTimer(data.activeExamTimer.focal, "in-progress", new Date(data.activeExamTimerUpdatedAt))
   }, [focal.user, data.activeExamTimer, data.activeExamTimerUpdatedAt])
+  useEffect(() => {
+    const userId = focal.user?.id
+    const supabase = focalSupabase
+    if (!userId || !supabase) return
+    let cancelled = false
+    let reading = false
+    const reconcile = async () => {
+      if (reading || cancelled) return
+      reading = true
+      try {
+        for (const kind of ["exam", "sac"] as const) {
+          const session = kind === "exam" ? data.activeExamTimer : data.activeSacTimer
+          const sessionId = session?.focal?.sessionId
+          if (!session || !sessionId) continue
+          const change = await readSharedFocalSessionChange(userId, sessionId)
+          if (cancelled || !change) continue
+          const remote = parseSharedFocalTimerState(change)
+          if (!remote) continue
+          if (remote.status === "deleted" || remote.status === "completed") {
+            if (kind === "exam") saveActiveExamTimer(undefined)
+            else saveActiveSacTimer(undefined)
+            toast("Session ended from another app")
+            continue
+          }
+          const now = Date.now()
+          const intervals = remote.intervals
+          const phase = remote.phase ?? (remote.status === "paused" ? "paused" : session.focal?.phase ?? "writing")
+          const focalLink = {
+            ...session.focal,
+            intervals,
+            ...(phase ? { phase } : {}),
+            ...(remote.phaseBeforePause ? { phaseBeforePause: remote.phaseBeforePause } : { phaseBeforePause: undefined }),
+          }
+          let next = session
+          if (kind === "exam") {
+            const exam = session as NonNullable<AppData["activeExamTimer"]>
+            next = remote.status === "paused"
+              ? exam.pausedAt === undefined ? pauseExamSession(exam, now) : exam
+              : exam.pausedAt !== undefined ? resumeExamSession(exam, now) : exam
+          } else {
+            const sac = session as NonNullable<AppData["activeSacTimer"]>
+            if (remote.status === "paused" && sac.pausedAt === undefined) {
+              next = { ...sac, pausedAt: now }
+            } else if (remote.status === "running" && sac.pausedAt !== undefined) {
+              const duration = Math.max(0, now - sac.pausedAt)
+              next = { ...sac, startedAt: sac.startedAt + duration, pausedAt: undefined,
+                pausedSeconds: sac.pausedSeconds + Math.floor(duration / 1000) }
+            }
+          }
+          const updated = { ...next, focal: focalLink }
+          if (JSON.stringify(updated) === JSON.stringify(session)) continue
+          if (kind === "exam") saveActiveExamTimer(updated as AppData["activeExamTimer"])
+          else saveActiveSacTimer(updated as AppData["activeSacTimer"])
+        }
+      } catch (error) {
+        console.error("Could not receive a shared Focal timer action:", error)
+      } finally {
+        reading = false
+      }
+    }
+    void reconcile()
+    const channel = supabase.channel(`examtrack-session-control-${userId}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "sync_changes", filter: `user_id=eq.${userId}` }, (event) => {
+        const row = event.new as { entity?: string; row_id?: string }
+        const ids = [data.activeExamTimer?.focal?.sessionId, data.activeSacTimer?.focal?.sessionId]
+        if (row.entity === "study_sessions" && ids.includes(row.row_id)) void reconcile()
+      })
+      .subscribe()
+    const interval = window.setInterval(() => void reconcile(), 5_000)
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+      void supabase.removeChannel(channel)
+    }
+  }, [focal.user?.id, data.activeExamTimer, data.activeSacTimer])
   useEffect(() => {
     if (!focal.user) return
     const flush = () => void flushFocalTimerOutbox()
@@ -549,6 +632,7 @@ export default function App() {
           </div>
         </header>
         <main id="main-content" className="w-full min-w-0 p-4 md:p-6 lg:p-8">
+          <SharedStudySessions />
           {data.activeExamTimer && view !== "timer" ? (
             <Alert className="mb-6">
               <AlertTitle>{data.activeExamTimer.pausedAt !== undefined ? "Saved exam" : "Exam in progress"} · {data.activeExamTimer.title}</AlertTitle>

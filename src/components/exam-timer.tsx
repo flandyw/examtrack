@@ -32,6 +32,7 @@ import { formatTimer, getExamTimerState } from "@/lib/exam-timer"
 import {
   createFocalTimerLink,
   publishFocalTimer,
+  setFocalTimerPhase,
 } from "@/lib/focal-timer"
 import { loadAppData } from "@/lib/storage"
 import { firstPreferredSubject, prioritiseSubjects } from "@/lib/subjects"
@@ -142,6 +143,16 @@ export function ExamTimer({ progression, onProgressionChange, attempts, referenc
     ? getExamTimerState(session.pausedAt ?? now.getTime(), session.startedAt, session.readingMinutes, session.writingMinutes, session.marks)
     : null, [now, session])
 
+  useEffect(() => {
+    if (!session?.focal || !timer || session.pausedAt !== undefined) return
+    const phase = timer.phase === "reading" ? "reading" : "writing"
+    if (session.focal.phase === phase) return
+    const focal = setFocalTimerPhase(session.focal, phase, now)
+    const next = { ...session, focal }
+    saveSession(next)
+    void publishFocalTimer(focal, "in-progress", now)
+  }, [session, timer?.phase, now])
+
   function applySuggestion(suggestion: ExamSuggestion) {
     const conditions = getKnownExamConditions(suggestion.subject, suggestion.paper)
     setSubject(suggestion.subject)
@@ -163,6 +174,8 @@ export function ExamTimer({ progression, onProgressionChange, attempts, referenc
       subject,
       formatExamTitle(provider, examYear, subject),
       (readingMinutes + writingMinutes) * 60,
+      new Date(),
+      readingMinutes * 60,
     )
     const next = {
       subject: subject.trim(), provider: provider.trim(), title: formatExamTitle(provider, examYear, subject), examYear, paper: paper.trim(),
@@ -186,8 +199,15 @@ export function ExamTimer({ progression, onProgressionChange, attempts, referenc
 
   function skipReading() {
     if (!session || !timer) return
-    const next = { ...session, startedAt: (session.pausedAt ?? Date.now()) - session.readingMinutes * 60_000 }
+    const now = new Date()
+    const focal = session.focal
+      ? session.pausedAt !== undefined
+        ? { ...session.focal, readingSeconds: 0, phase: "paused" as const, phaseBeforePause: "writing" as const }
+        : setFocalTimerPhase({ ...session.focal, readingSeconds: 0 }, "writing", now)
+      : undefined
+    const next = { ...session, startedAt: (session.pausedAt ?? now.getTime()) - session.readingMinutes * 60_000, focal }
     saveSession(next)
+    if (focal) void publishFocalTimer(focal, "in-progress", now)
   }
 
   function pause() {

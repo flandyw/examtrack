@@ -8,6 +8,9 @@ export type FocalTimerLink = {
   subject: string
   title: string
   plannedSeconds: number
+  readingSeconds?: number
+  phase?: "reading" | "writing" | "paused"
+  phaseBeforePause?: "reading" | "writing"
   createdAt: string
   intervals: { start: string; end?: string }[]
 }
@@ -18,6 +21,22 @@ type PendingTimerChange = {
   link: FocalTimerLink
   operation: FocalTimerOperation
   changedAt: string
+}
+
+export type SharedFocalSessionChange = {
+  change_id: string
+  device_id: string
+  row_id: string
+  operation: "put" | "delete"
+  payload: Record<string, unknown> | null
+  revision: number
+}
+
+export type SharedFocalTimerState = {
+  status: "deleted" | "completed" | "paused" | "running"
+  phase?: "reading" | "writing" | "paused"
+  phaseBeforePause?: "reading" | "writing"
+  intervals: { start: string; end?: string }[]
 }
 
 const OUTBOX_KEY = "examtrack.focal-timer-outbox:v1"
@@ -32,6 +51,53 @@ export function isFocalTimerLink(value: unknown): value is FocalTimerLink {
     typeof link.createdAt === "string" && Array.isArray(link.intervals) &&
     link.intervals.every((interval) => Boolean(interval) && typeof interval === "object" &&
       typeof interval.start === "string" && (interval.end === undefined || typeof interval.end === "string"))
+}
+
+export async function readSharedFocalSessionChange(userId: string, sessionId: string): Promise<SharedFocalSessionChange | null> {
+  if (!focalSupabase) return null
+  const { data, error } = await focalSupabase.from("sync_changes")
+    .select("change_id,device_id,row_id,operation,payload,revision")
+    .eq("user_id", userId).eq("entity", "study_sessions").eq("row_id", sessionId)
+    .order("revision", { ascending: false }).limit(1)
+  if (error) throw error
+  const row = data?.[0] as SharedFocalSessionChange | undefined
+  return row ?? null
+}
+
+export function parseSharedFocalTimerState(change: SharedFocalSessionChange): SharedFocalTimerState | null {
+  if (change.operation === "delete") return { status: "deleted", intervals: [] }
+  const payload = change.payload
+  if (!payload || typeof payload !== "object") return null
+  const execution = payload.execution && typeof payload.execution === "object"
+    ? payload.execution as Record<string, unknown>
+    : {}
+  const integrations = payload.integrations && typeof payload.integrations === "object"
+    ? payload.integrations as Record<string, unknown>
+    : {}
+  const source = integrations.examtrack && typeof integrations.examtrack === "object"
+    ? integrations.examtrack as Record<string, unknown>
+    : integrations.folio && typeof integrations.folio === "object"
+      ? integrations.folio as Record<string, unknown>
+      : {}
+  const phase = source.phase === "reading" || source.phase === "writing" || source.phase === "paused"
+    ? source.phase
+    : undefined
+  const phaseBeforePause = source.phaseBeforePause === "reading" || source.phaseBeforePause === "writing"
+    ? source.phaseBeforePause
+    : undefined
+  const intervals = Array.isArray(execution.intervals)
+    ? execution.intervals.flatMap((value) => {
+        if (!value || typeof value !== "object") return []
+        const interval = value as Record<string, unknown>
+        if (typeof interval.start !== "string" || !Number.isFinite(new Date(interval.start).getTime())) return []
+        const end = typeof interval.end === "string" && Number.isFinite(new Date(interval.end).getTime()) ? interval.end : undefined
+        return [{ start: interval.start, ...(end ? { end } : {}) }]
+      })
+    : []
+  if (execution.state === "completed") return { status: "completed", phase, phaseBeforePause, intervals }
+  if (execution.state !== "in-progress") return null
+  const paused = phase === "paused" || (!phase && Boolean(intervals.at(-1)?.end))
+  return { status: paused ? "paused" : "running", phase, phaseBeforePause, intervals }
 }
 
 function readOutbox(): Record<string, PendingTimerChange> {
@@ -59,6 +125,7 @@ export function createFocalTimerLink(
   title: string,
   plannedSeconds: number,
   now = new Date(),
+  readingSeconds = 0,
 ): FocalTimerLink {
   const createdAt = now.toISOString()
   return {
@@ -67,8 +134,10 @@ export function createFocalTimerLink(
     subject: subject.trim(),
     title: title.trim(),
     plannedSeconds: Math.max(60, Math.round(plannedSeconds)),
+    readingSeconds: Math.max(0, Math.round(readingSeconds)),
+    phase: readingSeconds > 0 ? "reading" : "writing",
     createdAt,
-    intervals: [{ start: createdAt }],
+    intervals: readingSeconds > 0 ? [] : [{ start: createdAt }],
   }
 }
 
@@ -79,12 +148,29 @@ export function pauseFocalTimer(link: FocalTimerLink, now = new Date()): FocalTi
     intervals: link.intervals.map((interval, index) =>
       index === link.intervals.length - 1 && !interval.end ? { ...interval, end } : interval
     ),
+    phaseBeforePause: link.phase === "reading" || link.phase === "writing" ? link.phase : "writing",
+    phase: "paused",
   }
 }
 
 export function resumeFocalTimer(link: FocalTimerLink, now = new Date()): FocalTimerLink {
-  if (link.intervals.some((interval) => !interval.end)) return link
-  return { ...link, intervals: [...link.intervals, { start: now.toISOString() }] }
+  const phase = link.phaseBeforePause ?? (link.kind === "exam" && link.readingSeconds ? "reading" : "writing")
+  const intervals = phase === "reading" || link.intervals.some((interval) => !interval.end)
+    ? link.intervals
+    : [...link.intervals, { start: now.toISOString() }]
+  return { ...link, intervals, phase, phaseBeforePause: undefined }
+}
+
+export function setFocalTimerPhase(link: FocalTimerLink, phase: "reading" | "writing", now = new Date()): FocalTimerLink {
+  if (link.phase === phase) return link
+  const end = now.toISOString()
+  let intervals = link.intervals.map((interval, index) =>
+    index === link.intervals.length - 1 && !interval.end ? { ...interval, end } : interval
+  )
+  if (phase === "writing" && !intervals.some((interval) => !interval.end)) {
+    intervals = [...intervals, { start: end }]
+  }
+  return { ...link, intervals, phase, phaseBeforePause: undefined }
 }
 
 async function sendTimerChange(change: PendingTimerChange): Promise<boolean> {
@@ -100,7 +186,7 @@ async function sendTimerChange(change: PendingTimerChange): Promise<boolean> {
     id: link.sessionId,
     subjectIds: [],
     title: `${link.kind === "exam" ? "Timed exam" : "Timed SAC"} · ${link.title}`,
-    description: `Logged by the ExamTrack ${link.kind} timer.`,
+    description: `Logged by the ExamTrack ${link.kind} timer${link.phase ? ` · ${link.phase}` : ""}.`,
     topics: [link.kind === "exam" ? "Exam practice" : "SAC practice"],
     schedule: {
       blocks: [{
@@ -112,7 +198,11 @@ async function sendTimerChange(change: PendingTimerChange): Promise<boolean> {
       ? { state: "completed", intervals: completedLink.intervals.map((interval) => ({ ...interval, source: "imported" })), completedAt }
       : { state: "in-progress", intervals: link.intervals.map((interval) => ({ ...interval, source: "imported" })) },
     createdVia: "examtrack",
-    integrations: { examtrack: { type: "examtrack", id: link.sessionId, kind: link.kind, subject: link.subject } },
+    integrations: { examtrack: {
+      type: "examtrack", id: link.sessionId, kind: link.kind, subject: link.subject,
+      phase: operation === "completed" ? link.phase : link.phase,
+      phaseBeforePause: link.phaseBeforePause,
+    } },
     created_at: link.createdAt,
     updated_at: change.changedAt,
     deleted_at: null,
