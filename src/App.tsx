@@ -240,7 +240,9 @@ export default function App() {
     }
     void reconcile()
     const channel = supabase.channel(`examtrack-session-control-${userId}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "sync_changes", filter: `user_id=eq.${userId}` }, (event) => {
+      // sync_changes is a view over the log since protocol v3, and Realtime replicates
+      // tables only, so this listens to the log itself. The row shape is unchanged.
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "sync_log", filter: `user_id=eq.${userId}` }, (event) => {
         const row = event.new as { entity?: string; row_id?: string }
         const ids = [data.activeExamTimer?.focal?.sessionId, data.activeSacTimer?.focal?.sessionId]
         if (row.entity === "study_sessions" && ids.includes(row.row_id)) void reconcile()

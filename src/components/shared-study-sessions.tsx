@@ -164,7 +164,10 @@ export function SharedStudySessions() {
     })
     safeRefresh()
     const channel = focalSupabase.channel(`examtrack-shared-study-${user.id}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "sync_changes", filter: `user_id=eq.${user.id}` }, (event) => {
+      // Realtime replicates tables, not views: sync_changes is a view over the log since
+      // protocol v3, so the subscription listens to sync_log and the poll below stays as
+      // the backstop. The payload shape is the same.
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "sync_log", filter: `user_id=eq.${user.id}` }, (event) => {
         if ((event.new as { entity?: string }).entity === "study_sessions") safeRefresh()
       }).subscribe()
     const poll = window.setInterval(safeRefresh, 5_000)
